@@ -1,0 +1,14 @@
+# OS Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Python / Temp
+__pycache__/
+*.pyc
+*.log
+
+# Raw Source Assets (Already compiled into naiwa.glb and model_data.js)
+tripo_convert*
+naiwa_opt.glb
+naiwa.zip

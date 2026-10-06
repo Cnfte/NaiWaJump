@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>奶蛙跳一跳 · NAIWA JUMP</title>
+    <link rel="stylesheet" href="css/style.css">
+    
+    <!-- 优先使用本地 Three.js 依赖，网络离线也能运行；同时提供 CDN 容错支持 -->
+    <script src="libs/three.min.js"></script>
+    <script>
+        if (typeof THREE === 'undefined') {
+            document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"><\/script>');
+        }
+    </script>
+    <script src="libs/GLTFLoader.js"></script>
+    <script>
+        if (typeof THREE !== 'undefined' && typeof THREE.GLTFLoader === 'undefined') {
+            document.write('<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"><\/script>');
+        }
+    </script>
+    <script src="libs/jszip.min.js"></script>
+    <script>
+        if (typeof JSZip === 'undefined') {
+            document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"><\/script>');
+        }
+    </script>
+
+    <!-- 预置离线模型数据 (保证 file:// 协议直接双击打开零报错秒开) -->
+    <script src="model_data.js"></script>
+</head>
+<body>
+    <!-- 3D WebGL 画布容器 -->
+    <div id="canvas-container"></div>
+
+    <!-- UI 交互层 -->
+    <div class="ui-layer">
+        
+        <!-- 1. 加载屏幕 -->
+        <div id="loading-screen">
+            <div class="loading-panel">
+                <div class="loading-mark-wrap">
+                    <svg class="loading-mark-icon" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="24" cy="24" r="22" fill="#FFE853" fill-opacity="0.25"/>
+                        <circle cx="24" cy="24" r="16" fill="#FDCB2F"/>
+                        <circle cx="19" cy="22" r="2.5" fill="#1C252C"/>
+                        <circle cx="29" cy="22" r="2.5" fill="#1C252C"/>
+                        <path d="M21 27C22 28.5 26 28.5 27 27" stroke="#1C252C" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </div>
+                <h1 class="loading-title">奶蛙跳一跳</h1>
+                <div class="loading-subtitle">NAIWA JUMP</div>
+                <div class="loading-bar-wrap">
+                    <div id="loading-bar-inner"></div>
+                </div>
+                <div id="loading-text">正在初始化游戏资源...</div>
+            </div>
+        </div>
+
+        <!-- 2. 主菜单界面 -->
+        <div id="main-menu" class="hidden">
+            <header class="menu-header">
+                <div class="menu-brand-pill">3D CASUAL ARCADE</div>
+                <h1 class="game-title">奶蛙跳一跳</h1>
+                <div class="game-subtitle">NAIWA JUMP</div>
+            </header>
+
+            <!-- 底部操作按钮组 -->
+            <nav class="menu-actions" aria-label="游戏主菜单">
+                <button id="btn-start" class="btn-primary" type="button">
+                    <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                    </svg>
+                    <span>开始游戏</span>
+                </button>
+                <button id="btn-records" class="btn-secondary" type="button">
+                    <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path>
+                        <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path>
+                        <path d="M4 22h16"></path>
+                        <path d="M10 14.66V17c0 .55-.45 1-1 1H7v4h10v-4h-2c-.55 0-1-.45-1-1v-2.34"></path>
+                        <path d="M6 4h12v6a6 6 0 0 1-12 0V4Z"></path>
+                    </svg>
+                    <span>历史战绩</span>
+                </button>
+                <button id="btn-settings" class="btn-secondary" type="button">
+                    <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z"></path>
+                    </svg>
+                    <span>偏好设置</span>
+                </button>
+            </nav>
+        </div>
+
+        <!-- 3. 游戏内 HUD -->
+        <div id="in-game-hud" class="hidden">
+            <header class="hud-top-bar">
+                <div class="hud-score-card">
+                    <span class="hud-score-label">SCORE</span>
+                    <span id="hud-score" class="hud-score-val">000000</span>
+                </div>
+
+                <div id="hud-combo-badge" class="hud-combo-badge hidden">
+                    <span class="combo-pulse-dot"></span>
+                    <span id="hud-combo-text">COMBO ×1</span>
+                </div>
+
+                <div class="hud-right-group">
+                    <div class="hud-best-badge">
+                        <span class="hud-best-label">BEST</span>
+                        <span id="hud-best-score" class="hud-best-val">0</span>
+                    </div>
+                    <button id="btn-pause" class="hud-btn" type="button" title="暂停游戏 (Esc / P)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="6" y="4" width="4" height="16" rx="1.5"></rect>
+                            <rect x="14" y="4" width="4" height="16" rx="1.5"></rect>
+                        </svg>
+                    </button>
+                </div>
+            </header>
+
+            <!-- 底部操作提示 (PC 与移动端自适应) -->
+            <footer class="hud-bottom-tip">
+                <div class="hud-tip-bubble">
+                    <span id="hud-control-hint">按住鼠标左键或 <kbd>Space</kbd> 蓄力，松开起跳</span>
+                </div>
+            </footer>
+        </div>
+
+        <!-- 4. 蓄力能量条 -->
+        <div id="charge-meter-container" class="hidden">
+            <div class="charge-meter-header">
+                <span class="charge-meter-label">JUMP POWER</span>
+                <span id="charge-meter-percent" class="charge-meter-percent">0%</span>
+            </div>
+            <div class="charge-meter-track">
+                <div id="charge-meter-fill"></div>
+            </div>
+        </div>
+
+        <!-- 5. 浮动落地评价飘字 (PERFECT / GREAT / GOOD) -->
+        <div id="floating-feedback-container" aria-live="polite"></div>
+
+        <!-- 6. 暂停菜单模态框 -->
+        <div id="pause-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="pause-title">
+            <div class="modal-card">
+                <div class="modal-pill-tag">GAME PAUSED</div>
+                <h2 id="pause-title" class="modal-title">游戏已暂停</h2>
+                <p class="modal-desc">已为您保留当前跳跃进度与连击纪录</p>
+                
+                <div class="modal-actions">
+                    <button id="btn-resume" class="btn-primary" type="button">
+                        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                        </svg>
+                        <span>继续跳跃</span>
+                    </button>
+                    <button id="btn-restart-pause" class="btn-secondary" type="button">
+                        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                            <path d="M3 3v5h5"></path>
+                        </svg>
+                        <span>重新开始</span>
+                    </button>
+                    <button id="btn-menu-pause" class="btn-secondary" type="button">
+                        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                            <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                        </svg>
+                        <span>返回主页</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 7. 结算模态框 (Game Over) -->
+        <div id="game-over-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="gameover-title">
+            <div class="modal-card">
+                <div class="modal-pill-tag tag-warning">ROUND FINISHED</div>
+                <h2 id="gameover-title" class="modal-title">踏空坠落</h2>
+                
+                <div class="score-summary-board">
+                    <div class="score-main-label">FINAL SCORE</div>
+                    <div id="final-score-val" class="score-main-val">0</div>
+                    <div id="new-record-badge" class="new-record-tag" style="display: none;">
+                        <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><path d="M8 1a2 2 0 0 0-2 2H3a1 1 0 0 0-1 1v1a4 4 0 0 0 3.8 3.99A4.5 4.5 0 0 0 7 10.9V13H5a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2H9v-2.1a4.5 4.5 0 0 0 3.2-1.91A4 4 0 0 0 16 5V4a1 1 0 0 0-1-1h-3a2 2 0 0 0-2-2H8ZM4 5h2v2a2 2 0 0 1-2-2Zm8 0h2v2a2 2 0 0 1-2-2Z"/></svg>
+                        <span>突破历史新高</span>
+                    </div>
+
+                    <div class="stat-grid">
+                        <div class="stat-item">
+                            <div id="best-score-val" class="stat-item-num">0</div>
+                            <div class="stat-item-label">最高纪录</div>
+                        </div>
+                        <div class="stat-item">
+                            <div id="max-combo-val" class="stat-item-num">0</div>
+                            <div class="stat-item-label">最高连击</div>
+                        </div>
+                        <div class="stat-item">
+                            <div id="perfect-count-val" class="stat-item-num">0</div>
+                            <div class="stat-item-label">完美落点</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button id="btn-gameover-replay" class="btn-primary" type="button">
+                        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                            <path d="M3 3v5h5"></path>
+                        </svg>
+                        <span>再来一局</span>
+                    </button>
+                    <button id="btn-gameover-menu" class="btn-secondary" type="button">
+                        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                            <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                        </svg>
+                        <span>返回主页</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 8. 历史战绩模态框 -->
+        <div id="records-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="records-title">
+            <div class="modal-card">
+                <div class="modal-pill-tag">STATISTICS</div>
+                <h2 id="records-title" class="modal-title">生涯战绩</h2>
+                <p class="modal-desc">数据保存在本地浏览器中，随时可刷新挑战</p>
+
+                <div class="score-summary-board" style="padding-top: 14px;">
+                    <div class="stat-grid" style="border-top: none; margin-top: 0; padding-top: 0;">
+                        <div class="stat-item">
+                            <div id="record-best-score" class="stat-item-num">0</div>
+                            <div class="stat-item-label">历史最高分</div>
+                        </div>
+                        <div class="stat-item">
+                            <div id="record-max-combo" class="stat-item-num">0</div>
+                            <div class="stat-item-label">最长连击</div>
+                        </div>
+                        <div class="stat-item">
+                            <div id="record-perfects" class="stat-item-num">0</div>
+                            <div class="stat-item-label">总 Perfect</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button class="btn-secondary modal-close-btn" type="button">完成查看</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 9. 偏好设置模态框 -->
+        <div id="settings-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+            <div class="modal-card">
+                <div class="modal-pill-tag">PREFERENCES</div>
+                <h2 id="settings-title" class="modal-title">偏好设置</h2>
+                <p class="modal-desc">调整音效反馈与画质渲染模式</p>
+
+                <div class="settings-box">
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <span class="setting-name">背景音乐 (BGM)</span>
+                            <span class="setting-hint">主菜单与游戏对局沉浸式原声音轨</span>
+                        </div>
+                        <label class="switch-label">
+                            <input type="checkbox" id="setting-bgm-toggle" checked>
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <span class="setting-name">游戏音效 (SFX)</span>
+                            <span class="setting-hint">按键点击、动态蓄力、落地与结算音效</span>
+                        </div>
+                        <label class="switch-label">
+                            <input type="checkbox" id="setting-sfx-toggle" checked>
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <span class="setting-name">主音量强度</span>
+                            <span class="setting-hint">平滑控制所有背景音乐与动作音效</span>
+                        </div>
+                        <input type="range" id="setting-sound-slider" class="setting-slider" min="0" max="100" value="70">
+                    </div>
+
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <span class="setting-name">画质品质</span>
+                            <span class="setting-hint">自适应阴影分辨率与采样倍率</span>
+                        </div>
+                        <select id="setting-quality" class="setting-select">
+                            <option value="low">流畅性能 (1.0x)</option>
+                            <option value="medium" selected>平衡画质 (1.5x)</option>
+                            <option value="high">极致超清 (2.0x)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button class="btn-primary modal-close-btn" type="button">保存设置</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 10. 本地文件安全策略 (file://) 引导模态框 -->
+        <div id="cors-modal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+            <div class="modal-card">
+                <div class="modal-pill-tag tag-warning">ENVIRONMENT NOTICE</div>
+                <h2 class="modal-title">本地运行说明</h2>
+                <p class="modal-desc">浏览器对本地文件读取设有严格安全策略</p>
+
+                <div class="help-guide-box">
+                    <div class="guide-item">
+                        <div class="guide-badge">1</div>
+                        <div class="guide-text"><strong>一键运行：</strong>双击目录中的 <code>启动游戏.bat</code> 即可自动启动本地服务并打开游戏。</div>
+                    </div>
+                    <div class="guide-item">
+                        <div class="guide-badge">2</div>
+                        <div class="guide-text"><strong>直接拖拽：</strong>将目录里的 <code>naiwa.zip</code> 或 <code>naiwa.glb</code> 拖拽到当前浏览器窗口载入。</div>
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <label class="btn-primary" style="cursor: pointer;">
+                        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                        </svg>
+                        <span>手动选取本地模型文件</span>
+                        <input type="file" id="manual-file-input" accept=".glb,.zip" style="display: none;">
+                    </label>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 游戏模块脚本 -->
+    <script src="js/audio.js"></script>
+    <script src="js/particles.js"></script>
+    <script src="js/platforms.js"></script>
+    <script src="js/player.js"></script>
+    <script src="js/loader.js"></script>
+    <script src="js/game.js"></script>
+</body>
+</html>
