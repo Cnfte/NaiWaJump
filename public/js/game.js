@@ -1571,16 +1571,32 @@ class NaiwaGame {
         const myRankSub = document.getElementById('my-rank-sub');
         const myRankScore = document.getElementById('my-rank-score-val');
 
-        if (!data || !data.records || data.records.length === 0) {
-            if (container) container.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 24px 0;">暂无记录</div>';
+        const records = (data && (data.records || data.leaderboard)) || [];
+
+        if (records.length === 0) {
+            if (podium) {
+                podium.innerHTML = '';
+                podium.style.display = 'none';
+            }
+            if (container) {
+                container.innerHTML = `
+                    <div style="text-align: center; color: var(--text-muted); padding: 36px 16px;">
+                        <div style="font-size: 36px; margin-bottom: 10px;">🏆</div>
+                        <div style="font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px;">全球实时榜单虚位以待</div>
+                        <div style="font-size: 13px; opacity: 0.85; line-height: 1.6;">已剔除所有假数据，仅记录玩家真实成绩！<br>开始一局跳跃挑战高分，成为全球首位登顶者！</div>
+                    </div>
+                `;
+            }
+            if (myRankBadge) myRankBadge.textContent = '--';
+            if (myRankTitle) myRankTitle.textContent = this.network.user ? this.network.user.name : '我的当前排位';
+            if (myRankSub) {
+                myRankSub.textContent = (this.highScore > 0) ? `最高得分 ${this.highScore} 分 · 结算即刻登顶！` : '尚未记录成绩，快开始一局跳跃吧！';
+            }
+            if (myRankScore) myRankScore.textContent = `${this.highScore || 0} 分`;
             return;
         }
 
-        const records = data.records || data.leaderboard || [];
-        if (records.length === 0) {
-            if (container) container.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 24px 0;">暂无记录</div>';
-            return;
-        }
+        if (podium) podium.style.display = 'flex';
 
         const myId = this.network.user ? this.network.user.id : null;
 
@@ -1593,7 +1609,16 @@ class NaiwaGame {
             const third = top3[2];
 
             const renderPodiumCol = (item, rank, className) => {
-                if (!item) return `<div class="podium-col ${className} empty"></div>`;
+                if (!item) {
+                    return `
+                        <div class="podium-col ${className} empty">
+                            <div class="podium-rank-badge rank-${rank}">${rank}</div>
+                            <div class="podium-name" style="opacity: 0.45;">虚位以待</div>
+                            <div class="podium-score" style="opacity: 0.35;">--</div>
+                            <div class="podium-pedestal p${rank}"></div>
+                        </div>
+                    `;
+                }
                 const pName = item.name || item.playerName || '高手奶蛙';
                 return `
                     <div class="podium-col ${className}">

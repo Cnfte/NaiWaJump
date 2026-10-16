@@ -12,19 +12,8 @@ const path = require('path');
 // 临时持久化文件路径 (Vercel Lambda 环境中 /tmp 支持读写并跨温暖容器保留)
 const TMP_FILE = path.join(process.env.TMPDIR || '/tmp', 'naiwa_jump_storage.json');
 
-// 初始全球排行榜真实高分榜单种子数据
-const DEFAULT_LEADERBOARD = [
-    { rank: 1, id: 'npc_1', name: '云端跳跳王', score: 3820, maxCombo: 42, verified: true, date: '2026-10-10' },
-    { rank: 2, id: 'npc_2', name: '荷塘宗师·小绿', score: 3260, maxCombo: 36, verified: true, date: '2026-10-09' },
-    { rank: 3, id: 'npc_3', name: '翠绿幻影', score: 2890, maxCombo: 31, verified: true, date: '2026-10-11' },
-    { rank: 4, id: 'npc_4', name: '马卡龙跃动者', score: 2450, maxCombo: 27, verified: true, date: '2026-10-08' },
-    { rank: 5, id: 'npc_5', name: '星际弹力蛙', score: 2110, maxCombo: 22, verified: true, date: '2026-10-10' },
-    { rank: 6, id: 'npc_6', name: '黄金荷叶侠', score: 1840, maxCombo: 19, verified: true, date: '2026-10-07' },
-    { rank: 7, id: 'npc_7', name: '水上漂萌蛙', score: 1530, maxCombo: 16, verified: true, date: '2026-10-11' },
-    { rank: 8, id: 'npc_8', name: '极速荷花仙', score: 1280, maxCombo: 14, verified: true, date: '2026-10-06' },
-    { rank: 9, id: 'npc_9', name: '奶油小跳蛙', score: 960, maxCombo: 11, verified: true, date: '2026-10-09' },
-    { rank: 10, id: 'npc_10', name: '荷塘新手探险家', score: 680, maxCombo: 8, verified: true, date: '2026-10-11' }
-];
+// 全球排行榜初始榜单 (纯净无假数据，仅记录真实玩家成绩)
+const DEFAULT_LEADERBOARD = [];
 
 // 对战 AI 对手预置库 (在未匹配到真人时提供真实动态对战)
 const AI_RIVALS = [
@@ -36,7 +25,7 @@ const AI_RIVALS = [
 
 // 全局内存状态
 let memoryState = {
-    leaderboard: [...DEFAULT_LEADERBOARD],
+    leaderboard: [],
     users: {},
     queue: [],
     rooms: {},
@@ -50,11 +39,12 @@ function initFromDisk() {
             const raw = fs.readFileSync(TMP_FILE, 'utf8');
             const data = JSON.parse(raw);
             if (data && data.leaderboard) {
+                // 剔除所有遗留的 npc_ 假数据与虚假成绩
+                const cleanBoard = data.leaderboard.filter(item => item && !String(item.id || '').startsWith('npc_'));
                 memoryState = {
                     ...memoryState,
                     ...data,
-                    // 确保默认榜单至少存在
-                    leaderboard: data.leaderboard.length > 0 ? data.leaderboard : DEFAULT_LEADERBOARD
+                    leaderboard: cleanBoard
                 };
             }
         }

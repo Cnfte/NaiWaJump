@@ -191,16 +191,11 @@ class NetworkManager {
             }
         } catch (e) {}
 
-        // 本地离线备用数据
+        // 本地离线备用数据 (无虚假假数据)
         return {
             ok: true,
-            leaderboard: [
-                { rank: 1, name: '云端跳跳王', score: 3820, maxCombo: 42, verified: true, date: '2026-10-10' },
-                { rank: 2, name: '荷塘宗师·小绿', score: 3260, maxCombo: 36, verified: true, date: '2026-10-09' },
-                { rank: 3, name: '翠绿幻影', score: 2890, maxCombo: 31, verified: true, date: '2026-10-11' },
-                { rank: 4, name: '马卡龙跃动者', score: 2450, maxCombo: 27, verified: true, date: '2026-10-08' },
-                { rank: 5, name: '星际弹力蛙', score: 2110, maxCombo: 22, verified: true, date: '2026-10-10' }
-            ],
+            leaderboard: [],
+            records: [],
             myRank: null
         };
     }

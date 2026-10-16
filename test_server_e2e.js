@@ -83,7 +83,7 @@ async function run() {
     console.log('API Leaderboard status:', lbRes.status);
     const lbJson = JSON.parse(lbRes.body);
     console.log('Leaderboard records count:', lbJson.records?.length);
-    if (!lbJson.records || lbJson.records.length === 0) throw new Error('Leaderboard failed');
+    if (!lbJson.records || !Array.isArray(lbJson.records)) throw new Error('Leaderboard failed');
 
     // 7. API Match Start
     const matchStartRes = await fetchUrl('/api/match', {
