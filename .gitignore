@@ -1,0 +1,16 @@
+# OS & Editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# Node & Vercel
+node_modules/
+.vercel/
+*.log
+
+# Raw & Backup Archives (The project uses tracked naiwa.glb & model_data.js)
+*.zip
+tripo_convert*
+naiwa_opt.glb

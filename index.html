@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>奶蛙跳一跳 · NAIWA JUMP</title>
+    <link rel="stylesheet" href="css/style.css">
+    
+    <!-- 优先使用本地 Three.js 依赖，网络离线也能运行；同时提供 CDN 容错支持 -->
+    <script src="libs/three.min.js"></script>
+    <script>
+        if (typeof THREE === 'undefined') {
+            document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"><\/script>');
+        }
+    </script>
+    <script src="libs/GLTFLoader.js"></script>
+    <script>
+        if (typeof THREE !== 'undefined' && typeof THREE.GLTFLoader === 'undefined') {
+            document.write('<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"><\/script>');
+        }
+    </script>
+    <script src="libs/jszip.min.js"></script>
+    <script>
+        if (typeof JSZip === 'undefined') {
+            document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"><\/script>');
+        }
+    </script>
+
+    <!-- 预置离线模型数据 (保证 file:// 协议直接双击打开零报错秒开) -->
+    <script src="model_data.js"></script>
+</head>
+<body>
+    <!-- 3D WebGL 画布容器 -->
+    <div id="canvas-container"></div>
+
+    <!-- UI 交互层 -->
+    <div class="ui-layer">
+        
+        <!-- 1. 加载屏幕 -->
+        <div id="loading-screen">
+            <div class="loading-panel">
+                <div class="loading-mark-wrap">
+                    <svg class="loading-mark-icon" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="24" cy="24" r="22" fill="#FFE853" fill-opacity="0.25"/>
+                        <circle cx="24" cy="24" r="16" fill="#FDCB2F"/>
+                        <circle cx="19" cy="22" r="2.5" fill="#1C252C"/>
+                        <circle cx="29" cy="22" r="2.5" fill="#1C252C"/>
+                        <path d="M21 27C22 28.5 26 28.5 27 27" stroke="#1C252C" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </div>
+                <h1 class="loading-title">奶蛙跳一跳</h1>
+                <div class="loading-subtitle">NAIWA JUMP</div>
+                <div class="loading-bar-wrap">
+                    <div id="loading-bar-inner"></div>
+                </div>
+                <div id="loading-text">正在初始化游戏资源...</div>
+            </div>
+        </div>
+
+        <!-- 2. 主菜单界面 -->
+        <div id="main-menu" class="hidden">
+            <!-- 顶部玩家名片条 -->
+            <div class="menu-user-bar">
+                <div id="user-profile-badge" class="user-profile-badge" role="button" title="点击修改选手昵称与头像">
+                    <div class="user-avatar-wrap">
+                        <span id="menu-user-avatar" class="user-avatar-emoji">🐸</span>
+                    </div>
+                    <div class="user-info-text">
+                        <div class="user-name-line">
+                            <span id="menu-user-name" class="user-name-text">正在加载...</span>
+                            <span class="user-edit-hint">✏️ 改名</span>
+                        </div>
+                        <span class="user-shield-tag">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                            <span>SHA-256 验签就绪</span>
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <header class="menu-header">
+                <div class="menu-brand-pill">3D CASUAL ARCADE</div>
+                <h1 class="game-title">奶蛙跳一跳</h1>
+                <div class="game-subtitle">NAIWA JUMP</div>
+            </header>
+
+            <!-- 底部操作按钮组 -->
+            <nav class="menu-actions" aria-label="游戏主菜单">
+                <button id="btn-start" class="btn-primary" type="button">
+                    <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                    </svg>
+                    <span>单人经典闯关</span>
+                </button>
+                <button id="btn-multiplayer" class="btn-primary btn-battle-glow" type="button">
+                    <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14.5 17.5L3 6V3h3l11.5 11.5"></path>
+                        <path d="M13 19l6 2 2-6-4.5-4.5"></path>
+                        <path d="M19 13l-4.5-4.5"></path>
+                    </svg>
+                    <span>1v1 实时对战</span>
+                </button>
+                <button id="btn-leaderboard" class="btn-secondary" type="button">
+                    <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path>
+                        <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path>
+                        <path d="M4 22h16"></path>
+                        <path d="M10 14.66V17c0 .55-.45 1-1 1H7v4h10v-4h-2c-.55 0-1-.45-1-1v-2.34"></path>
+                        <path d="M6 4h12v6a6 6 0 0 1-12 0V4Z"></path>
+                    </svg>
+                    <span>全球实时榜单</span>
+                </button>
+                <button id="btn-records" class="btn-secondary" type="button">
+                    <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                        <line x1="16" y1="2" x2="16" y2="6"></line>
+                        <line x1="8" y1="2" x2="8" y2="6"></line>
+                        <line x1="3" y1="10" x2="21" y2="10"></line>
+                    </svg>
+                    <span>个人生涯战绩</span>
+                </button>
+                <button id="btn-settings" class="btn-secondary" type="button">
+                    <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z"></path>
+                    </svg>
+                    <span>偏好设置</span>
+                </button>
+            </nav>
+        </div>
+
+        <!-- 3. 游戏内 HUD -->
+        <div id="in-game-hud" class="hidden">
+            <header class="hud-top-bar">
+                <div class="hud-score-card">
+                    <span class="hud-score-label">SCORE</span>
+                    <span id="hud-score" class="hud-score-val">000000</span>
+                </div>
+
+                <div id="hud-combo-badge" class="hud-combo-badge hidden">
+                    <span class="combo-pulse-dot"></span>
+                    <span id="hud-combo-text">COMBO ×1</span>
+                </div>
+
+                <div class="hud-right-group">
+                    <div class="hud-best-badge">
+                        <span class="hud-best-label">BEST</span>
+                        <span id="hud-best-score" class="hud-best-val">0</span>
+                    </div>
+                    <button id="btn-pause" class="hud-btn" type="button" title="暂停游戏 (Esc / P)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="6" y="4" width="4" height="16" rx="1.5"></rect>
+                            <rect x="14" y="4" width="4" height="16" rx="1.5"></rect>
+                        </svg>
+                    </button>
+                </div>
+            </header>
+
+            <!-- 底部操作提示 (PC 与移动端自适应) -->
+            <footer class="hud-bottom-tip">
+                <div class="hud-tip-bubble">
+                    <span id="hud-control-hint">按住鼠标左键或 <kbd>Space</kbd> 蓄力，松开起跳</span>
+                </div>
+            </footer>
+        </div>
+
+        <!-- 3.5 多人对战 1v1 实时对抗 HUD -->
+        <div id="battle-hud" class="battle-hud hidden">
+            <!-- 顶部对决双雄栏 -->
+            <div class="battle-top-bar">
+                <div class="battle-card-side my-side">
+                    <div class="battle-name-row">
+                        <span class="battle-dot green"></span>
+                        <span id="battle-my-name" class="battle-name-label">我</span>
+                    </div>
+                    <div class="battle-stats-row">
+                        <span id="battle-my-score" class="battle-score-num">0</span>
+                        <span id="battle-my-step" class="battle-step-tag">台阶 0</span>
+                    </div>
+                </div>
+
+                <!-- 核心：中央竞速实时赛道进度条与快捷操作 -->
+                <div class="battle-center-cluster">
+                    <div class="battle-race-track-wrapper">
+                        <div class="battle-track-labels">
+                            <span id="track-dist-label" class="track-status-text">实时竞速差距: 0 阶</span>
+                            <span id="battle-lead-text" class="battle-lead-indicator">齐头并进</span>
+                        </div>
+                        <div class="battle-race-track">
+                            <div class="track-bg-line"></div>
+                            <!-- 我的进度指示器 -->
+                            <div id="track-runner-my" class="track-runner my-runner" style="left: 0%;">
+                                <span class="runner-avatar">🐸</span>
+                                <span class="runner-badge">我</span>
+                            </div>
+                            <!-- 对手进度指示器 -->
+                            <div id="track-runner-opp" class="track-runner opp-runner" style="left: 0%;">
+                                <span class="runner-avatar">🟣</span>
+                                <span id="track-opp-avatar-text" class="runner-badge">敌</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 顶部对决操作组：投降与临时聊天 -->
+                    <div class="battle-action-bar">
+                        <button id="btn-duel-chat-toggle" class="battle-btn-chat" type="button" title="发送对决互动快捷弹幕">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                            </svg>
+                            <span>互动</span>
+                        </button>
+                        <button id="btn-duel-surrender" class="battle-btn-surrender" type="button" title="主动认输投降">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+                                <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path>
+                                <line x1="4" y1="22" x2="4" y2="15"></line>
+                            </svg>
+                            <span>投降</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="battle-card-side opp-side">
+                    <div class="battle-name-row" style="justify-content: flex-end;">
+                        <span id="battle-opp-name" class="battle-name-label">对手</span>
+                        <span class="battle-dot purple"></span>
+                    </div>
+                    <div class="battle-stats-row" style="justify-content: flex-end;">
+                        <span id="battle-opp-step" class="battle-step-tag">台阶 0</span>
+                        <span id="battle-opp-score" class="battle-score-num">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 临时局内弹幕与快捷互动抽屉 -->
+            <div id="duel-chat-drawer" class="duel-chat-drawer hidden">
+                <div class="duel-chat-header">
+                    <span>对决快捷互动</span>
+                    <button id="btn-close-duel-chat" class="chat-close-btn" type="button">&times;</button>
+                </div>
+                <div class="quick-phrase-grid">
+                    <button class="quick-phrase-btn" type="button" data-msg="呱！看我这记完美跳跃！">呱！看我这记！</button>
+                    <button class="quick-phrase-btn" type="button" data-msg="手下留情，别跳太快～">手下留情呀～</button>
+                    <button class="quick-phrase-btn" type="button" data-msg="小心飞鸟，别被撞到了！">小心空中有飞鸟！</button>
+                    <button class="quick-phrase-btn" type="button" data-msg="好险！差点就踩空了！">好险差点踩空！</button>
+                    <button class="quick-phrase-btn" type="button" data-msg="冲啊！地狱模式见分晓！">地狱模式见分晓！</button>
+                    <button class="quick-phrase-btn" type="button" data-msg="胜负未定，稳住节奏！">胜负未定稳住！</button>
+                </div>
+                <div class="custom-chat-row">
+                    <input type="text" id="input-duel-chat" class="custom-chat-input" maxlength="24" placeholder="输入自定义喊话 (回车发送)...">
+                    <button id="btn-send-duel-chat" class="btn-primary custom-chat-send" type="button">发送</button>
+                </div>
+            </div>
+
+            <!-- 浮动实时对话气泡提示 -->
+            <div id="duel-chat-toast" class="duel-chat-toast hidden">
+                <span id="duel-chat-sender" class="toast-sender">对手:</span>
+                <span id="duel-chat-content" class="toast-content">呱！</span>
+            </div>
+        </div>
+
+        <!-- 3.8 对决地狱模式突发告警全屏横幅 -->
+        <div id="hell-mode-alert" class="hell-mode-alert hidden">
+            <div class="hell-alert-glow"></div>
+            <div class="hell-alert-content">
+                <div class="hell-pill-tag">⚠️ SUDDEN DEATH · HELL MODE</div>
+                <h1 class="hell-title">地狱对决爆发！</h1>
+                <p class="hell-subtitle">双方难分高下，得分突破极限！血红苍穹，熔岩升腾，飞鸟狂暴，蓄力失稳！</p>
+            </div>
+        </div>
+
+        <!-- 4. 蓄力能量条 -->
+        <div id="charge-meter-container" class="hidden">
+            <div class="charge-meter-header">
+                <span class="charge-meter-label">JUMP POWER</span>
+                <span id="charge-meter-percent" class="charge-meter-percent">0%</span>
+            </div>
+            <div class="charge-meter-track">
+                <div id="charge-meter-fill"></div>
+            </div>
+        </div>
+
+        <!-- 5. 浮动落地评价飘字 (PERFECT / GREAT / GOOD) -->
+        <div id="floating-feedback-container" aria-live="polite"></div>
+
+        <!-- 6. 暂停菜单模态框 -->
+        <div id="pause-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="pause-title">
+            <div class="modal-card">
+                <div class="modal-pill-tag">GAME PAUSED</div>
+                <h2 id="pause-title" class="modal-title">游戏已暂停</h2>
+                <p class="modal-desc">已为您保留当前跳跃进度与连击纪录</p>
+                
+                <div class="modal-actions">
+                    <button id="btn-resume" class="btn-primary" type="button">
+                        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                        </svg>
+                        <span>继续跳跃</span>
+                    </button>
+                    <button id="btn-restart-pause" class="btn-secondary" type="button">
+                        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                            <path d="M3 3v5h5"></path>
+                        </svg>
+                        <span>重新开始</span>
+                    </button>
+                    <button id="btn-menu-pause" class="btn-secondary" type="button">
+                        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                            <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                        </svg>
+                        <span>返回主页</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 7. 结算模态框 (Game Over) -->
+        <div id="game-over-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="gameover-title">
+            <div class="modal-card">
+                <div class="modal-pill-tag tag-warning">ROUND FINISHED</div>
+                <h2 id="gameover-title" class="modal-title">踏空坠落</h2>
+                
+                <div class="score-summary-board">
+                    <div class="score-main-label">FINAL SCORE</div>
+                    <div id="final-score-val" class="score-main-val">0</div>
+                    <div id="new-record-badge" class="new-record-tag" style="display: none;">
+                        <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><path d="M8 1a2 2 0 0 0-2 2H3a1 1 0 0 0-1 1v1a4 4 0 0 0 3.8 3.99A4.5 4.5 0 0 0 7 10.9V13H5a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2H9v-2.1a4.5 4.5 0 0 0 3.2-1.91A4 4 0 0 0 16 5V4a1 1 0 0 0-1-1h-3a2 2 0 0 0-2-2H8ZM4 5h2v2a2 2 0 0 1-2-2Zm8 0h2v2a2 2 0 0 1-2-2Z"/></svg>
+                        <span>突破历史新高</span>
+                    </div>
+
+                    <div class="stat-grid">
+                        <div class="stat-item">
+                            <div id="best-score-val" class="stat-item-num">0</div>
+                            <div class="stat-item-label">最高纪录</div>
+                        </div>
+                        <div class="stat-item">
+                            <div id="max-combo-val" class="stat-item-num">0</div>
+                            <div class="stat-item-label">最高连击</div>
+                        </div>
+                        <div class="stat-item">
+                            <div id="perfect-count-val" class="stat-item-num">0</div>
+                            <div class="stat-item-label">完美落点</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button id="btn-gameover-replay" class="btn-primary" type="button">
+                        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                            <path d="M3 3v5h5"></path>
+                        </svg>
+                        <span>再来一局</span>
+                    </button>
+                    <button id="btn-gameover-menu" class="btn-secondary" type="button">
+                        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                            <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                        </svg>
+                        <span>返回主页</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 8. 历史战绩模态框 -->
+        <div id="records-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="records-title">
+            <div class="modal-card">
+                <div class="modal-pill-tag">STATISTICS</div>
+                <h2 id="records-title" class="modal-title">生涯战绩</h2>
+                <p class="modal-desc">数据保存在本地浏览器中，随时可刷新挑战</p>
+
+                <div class="score-summary-board" style="padding-top: 14px;">
+                    <div class="stat-grid" style="border-top: none; margin-top: 0; padding-top: 0;">
+                        <div class="stat-item">
+                            <div id="record-best-score" class="stat-item-num">0</div>
+                            <div class="stat-item-label">历史最高分</div>
+                        </div>
+                        <div class="stat-item">
+                            <div id="record-max-combo" class="stat-item-num">0</div>
+                            <div class="stat-item-label">最长连击</div>
+                        </div>
+                        <div class="stat-item">
+                            <div id="record-perfects" class="stat-item-num">0</div>
+                            <div class="stat-item-label">总 Perfect</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button id="btn-records-open-profile" class="btn-primary" type="button">修改选手昵称与头像</button>
+                    <button class="btn-secondary modal-close-btn" type="button">完成查看</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 9. 偏好设置模态框 -->
+        <div id="settings-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+            <div class="modal-card">
+                <div class="modal-pill-tag">PREFERENCES</div>
+                <h2 id="settings-title" class="modal-title">偏好设置</h2>
+                <p class="modal-desc">调整音效反馈与画质渲染模式</p>
+
+                <div class="settings-box">
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <span class="setting-name">选手名片与形象</span>
+                            <span class="setting-hint">修改跳跃蛙头像、选手昵称并查看对决战绩</span>
+                        </div>
+                        <button id="btn-settings-open-profile" class="btn-secondary" style="padding: 7px 14px; font-size: 13px;" type="button">点击改名</button>
+                    </div>
+
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <span class="setting-name">背景音乐 (BGM)</span>
+                            <span class="setting-hint">主菜单与游戏对局沉浸式原声音轨</span>
+                        </div>
+                        <label class="switch-label">
+                            <input type="checkbox" id="setting-bgm-toggle" checked>
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <span class="setting-name">游戏音效 (SFX)</span>
+                            <span class="setting-hint">按键点击、动态蓄力、落地与结算音效</span>
+                        </div>
+                        <label class="switch-label">
+                            <input type="checkbox" id="setting-sfx-toggle" checked>
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <span class="setting-name">主音量强度</span>
+                            <span class="setting-hint">平滑控制所有背景音乐与动作音效</span>
+                        </div>
+                        <input type="range" id="setting-sound-slider" class="setting-slider" min="0" max="100" value="70">
+                    </div>
+
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <span class="setting-name">画质品质</span>
+                            <span class="setting-hint">自适应阴影分辨率与采样倍率</span>
+                        </div>
+                        <select id="setting-quality" class="setting-select">
+                            <option value="low">流畅性能 (1.0x)</option>
+                            <option value="medium" selected>平衡画质 (1.5x)</option>
+                            <option value="high">极致超清 (2.0x)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button class="btn-primary modal-close-btn" type="button">保存设置</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 10. 本地文件安全策略 (file://) 引导模态框 -->
+        <div id="cors-modal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+            <div class="modal-card">
+                <div class="modal-pill-tag tag-warning">ENVIRONMENT NOTICE</div>
+                <h2 class="modal-title">本地运行说明</h2>
+                <p class="modal-desc">浏览器对本地文件读取设有严格安全策略</p>
+
+                <div class="help-guide-box">
+                    <div class="guide-item">
+                        <div class="guide-badge">1</div>
+                        <div class="guide-text"><strong>一键运行：</strong>双击目录中的 <code>启动游戏.bat</code> 即可自动启动本地服务并打开游戏。</div>
+                    </div>
+                    <div class="guide-item">
+                        <div class="guide-badge">2</div>
+                        <div class="guide-text"><strong>直接拖拽：</strong>将目录里的 <code>naiwa.zip</code> 或 <code>naiwa.glb</code> 拖拽到当前浏览器窗口载入。</div>
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <label class="btn-primary" style="cursor: pointer;">
+                        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                        </svg>
+                        <span>手动选取本地模型文件</span>
+                        <input type="file" id="manual-file-input" accept=".glb,.zip" style="display: none;">
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- 11. 1v1 匹配雷达搜寻模态框 -->
+        <div id="matchmaking-modal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+            <div class="modal-card radar-modal-card">
+                <div class="modal-pill-tag tag-battle">1V1 MATCHMAKING</div>
+                <h2 class="modal-title">正在匹配对手</h2>
+                <p class="modal-desc">正在全球房间寻找天梯实力相当的跳跃选手</p>
+
+                <div class="radar-scan-box">
+                    <div class="radar-ring r1"></div>
+                    <div class="radar-ring r2"></div>
+                    <div class="radar-ring r3"></div>
+                    <div class="radar-sweep"></div>
+                    <div class="radar-center-mark">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                            <polygon points="12 2 15 8 22 9 17 14 18 21 12 17 6 21 7 14 2 9 9 8 12 2"></polygon>
+                        </svg>
+                    </div>
+                </div>
+
+                <div class="matchmaking-status-wrap">
+                    <span class="pulse-dot"></span>
+                    <span id="matchmaking-status-text">正在连通全球对战大厅 (0s)...</span>
+                </div>
+
+                <div class="modal-actions">
+                    <button id="btn-cancel-match" class="btn-secondary" type="button">取消搜寻</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 12. 对决匹配成功 (VS) 倒计时卡片 -->
+        <div id="match-found-modal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+            <div class="modal-card vs-modal-card">
+                <div class="modal-pill-tag tag-success">MATCH FOUND</div>
+                <h2 class="modal-title">对手已锁定！</h2>
+
+                <div class="vs-card-grid">
+                    <div class="vs-col me-col">
+                        <div class="vs-avatar me">我</div>
+                        <div id="vs-my-name" class="vs-name">荷塘萌蛙</div>
+                    </div>
+                    <div class="vs-badge-col">
+                        <div class="vs-badge-pill">VS</div>
+                        <div id="vs-countdown-display" class="vs-countdown-num">3</div>
+                    </div>
+                    <div class="vs-col opp-col">
+                        <div class="vs-avatar opp">敌</div>
+                        <div id="vs-opp-name" class="vs-name">对手选手</div>
+                    </div>
+                </div>
+                <p class="modal-desc" style="margin-top: 14px;">双方将在同一确定性随机赛道同台竞技，失足掉落即败！</p>
+            </div>
+        </div>
+
+        <!-- 13. 1v1 对战结算模态框 -->
+        <div id="battle-result-modal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+            <div class="modal-card">
+                <div id="battle-result-pill" class="modal-pill-tag tag-success">VICTORY</div>
+                <h2 id="battle-result-title" class="modal-title">旗开得胜！</h2>
+                <p id="battle-result-desc" class="modal-desc">你在跳跃对决中技高一筹，力克对手</p>
+
+                <div class="battle-score-summary">
+                    <div class="duel-player-row me">
+                        <span id="duel-summary-my-name" class="duel-name">我的成绩</span>
+                        <span id="duel-summary-my-score" class="duel-num">0</span>
+                    </div>
+                    <div class="duel-divider"></div>
+                    <div class="duel-player-row opp">
+                        <span id="duel-summary-opp-name" class="duel-name">对手成绩</span>
+                        <span id="duel-summary-opp-score" class="duel-num">0</span>
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button id="btn-battle-rematch" class="btn-primary" type="button">再次对战</button>
+                    <button id="btn-battle-home" class="btn-secondary" type="button">返回主页</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 14. 全球实时排行榜模态框 -->
+        <div id="leaderboard-modal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+            <div class="modal-card leaderboard-modal-card">
+                <div class="modal-pill-tag">GLOBAL LEADERBOARD</div>
+                <h2 class="modal-title">全球实时榜单</h2>
+                <p class="modal-desc">由 SHA-256 动作链与物理时序反作弊防篡改驱动</p>
+
+                <!-- 前三名领奖台 -->
+                <div id="leaderboard-podium" class="podium-grid"></div>
+
+                <!-- 排行榜滚动列表 -->
+                <div class="leaderboard-scroll-box">
+                    <div id="leaderboard-items-container" class="leaderboard-items">
+                        <!-- 动态列表项 -->
+                    </div>
+                </div>
+
+                <!-- 底部吸底用户排位卡 -->
+                <div class="my-rank-sticky-card">
+                    <span id="my-rank-badge" class="my-rank-num">--</span>
+                    <div class="my-rank-meta">
+                        <div id="my-rank-title" class="my-rank-name">我的当前排位</div>
+                        <div id="my-rank-sub" class="my-rank-desc">尚未录入榜单，快去挑战高分吧</div>
+                    </div>
+                    <div id="my-rank-score-val" class="my-rank-score">0 分</div>
+                </div>
+
+                <div class="modal-actions" style="margin-top: 14px;">
+                    <button class="btn-secondary modal-close-btn" type="button">返回主页</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 15. 玩家名片与鉴权凭证模态框 (完善用户系统) -->
+        <div id="profile-modal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+            <div class="modal-card profile-modal-card">
+                <div class="modal-pill-tag">PLAYER IDENTITY & PROFILE</div>
+                <h2 class="modal-title">选手名片档案</h2>
+                <p class="modal-desc">自定义你的跳跃选手形象、专属昵称并查看生涯对决战力</p>
+
+                <div class="profile-avatar-section">
+                    <label class="setting-name">专属跳跃蛙头像</label>
+                    <div id="profile-avatar-picker" class="avatar-picker-grid">
+                        <button class="avatar-pick-btn active" data-avatar="frog-green" type="button" title="荷塘萌蛙">🐸</button>
+                        <button class="avatar-pick-btn" data-avatar="frog-gold" type="button" title="黄金锦蛙">👑</button>
+                        <button class="avatar-pick-btn" data-avatar="frog-purple" type="button" title="幻境幽灵">🟣</button>
+                        <button class="avatar-pick-btn" data-avatar="frog-red" type="button" title="熔岩烈蛙">🔥</button>
+                        <button class="avatar-pick-btn" data-avatar="frog-blue" type="button" title="深海琉璃">🌊</button>
+                        <button class="avatar-pick-btn" data-avatar="frog-ninja" type="button" title="疾风暗夜">🥷</button>
+                    </div>
+                </div>
+
+                <div class="settings-box">
+                    <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                        <label class="setting-name" for="input-player-name">选手昵称</label>
+                        <div style="display: flex; gap: 8px; width: 100%;">
+                            <input type="text" id="input-player-name" class="profile-text-input" maxlength="16" placeholder="输入选手新昵称...">
+                            <button id="btn-save-profile-name" class="btn-primary" style="padding: 10px 18px; font-size: 13px;" type="button">保存修改</button>
+                        </div>
+                    </div>
+
+                    <!-- 生涯对决战绩统计卡片 -->
+                    <div class="career-stats-grid">
+                        <div class="career-stat-card">
+                            <span id="stat-duel-total" class="career-stat-num">0</span>
+                            <span class="career-stat-label">1v1 对决总场</span>
+                        </div>
+                        <div class="career-stat-card">
+                            <span id="stat-duel-winrate" class="career-stat-num">0%</span>
+                            <span class="career-stat-label">对决胜率</span>
+                        </div>
+                        <div class="career-stat-card">
+                            <span id="stat-duel-record" class="career-stat-num">0 胜 0 负</span>
+                            <span class="career-stat-label">胜败记录</span>
+                        </div>
+                    </div>
+
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <span class="setting-name">安全身份凭证 (Token)</span>
+                            <span class="setting-hint" id="profile-token-preview">已由服务端 HMAC-SHA256 签名保护</span>
+                        </div>
+                        <span class="auth-status-badge">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                            <span>已验证</span>
+                        </span>
+                    </div>
+
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <span class="setting-name">反作弊防护系统</span>
+                            <span class="setting-hint">抛物线物理校验 + 单步增量审查 + 重放防护</span>
+                        </div>
+                        <span class="auth-status-badge green">
+                            <span>实时运行</span>
+                        </span>
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button class="btn-secondary modal-close-btn" type="button">完成</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 16. 对决主动投降二次确认模态框 -->
+        <div id="surrender-confirm-modal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+            <div class="modal-card">
+                <div class="modal-pill-tag tag-warning">SURRENDER CONFIRMATION</div>
+                <h2 class="modal-title">确认主动投降？</h2>
+                <p class="modal-desc">投降后本局将立即结束，直接判定对手获胜并计入对决战绩。</p>
+                <div class="modal-actions">
+                    <button id="btn-confirm-surrender" class="btn-primary" style="background: #ef4444;" type="button">确认认输</button>
+                    <button id="btn-cancel-surrender" class="btn-secondary" type="button">继续战斗</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 游戏模块脚本 -->
+    <script src="js/network.js"></script>
+    <script src="js/audio.js"></script>
+    <script src="js/particles.js"></script>
+    <script src="js/platforms.js"></script>
+    <script src="js/player.js"></script>
+    <script src="js/rival.js"></script>
+    <script src="js/obstacles.js"></script>
+    <script src="js/loader.js"></script>
+    <script src="js/game.js"></script>
+</body>
+</html>

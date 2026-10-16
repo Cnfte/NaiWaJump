@@ -1,0 +1,22 @@
+{
+  "name": "naiwa-jump",
+  "version": "2.0.0",
+  "description": "3D Casual Jump Game with 1v1 Battle, Global Leaderboard & Anti-Cheat",
+  "main": "index.html",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test_backend.js && node test_server_e2e.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "threejs",
+    "game",
+    "3d",
+    "multiplayer",
+    "vercel"
+  ],
+  "author": "Antigravity",
+  "license": "MIT"
+}
