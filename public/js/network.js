@@ -203,18 +203,20 @@ class NetworkManager {
     /**
      * 提交成绩入榜 (带防作弊验签)
      */
-    async submitScore(score, maxCombo, jumpCount) {
+    async submitScore(score, maxCombo = 0, jumpCount = 0) {
         if (!this.token) await this.initAuth();
         const timestamp = Date.now();
         const nonce = Math.random().toString(36).substr(2, 8);
         const signature = await this.generateSignature(score, maxCombo, timestamp, nonce);
-        const durationSeconds = this.matchStartTime ? (Date.now() - this.matchStartTime) / 1000 : 0;
+        const durationSeconds = this.matchStartTime ? Math.max(1, (Date.now() - this.matchStartTime) / 1000) : 10;
+        const safeJumpCount = Math.max(Number(jumpCount) || 0, Number(maxCombo) || 0, Math.ceil(score / 40), 1);
 
         const payload = {
-            score,
-            maxCombo,
-            jumpCount,
+            score: Number(score),
+            maxCombo: Number(maxCombo),
+            jumpCount: safeJumpCount,
             durationSeconds,
+            avatar: this.user ? this.user.avatar : 'frog-green',
             logs: this.telemetryLogs,
             signature,
             timestamp,

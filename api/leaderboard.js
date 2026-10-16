@@ -92,6 +92,7 @@ module.exports = async function handler(req, res) {
             const result = await submitScore({
                 playerId: decoded.id,
                 name: decoded.name,
+                avatar: body.avatar || (decoded && decoded.avatar),
                 score: Number(score),
                 maxCombo: Number(maxCombo),
                 verified: true

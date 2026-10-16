@@ -76,22 +76,28 @@ async function getLeaderboard(limit = 50) {
 /**
  * 提交成绩入榜
  */
-async function submitScore({ playerId, name, score, maxCombo, verified = true }) {
+async function submitScore({ playerId, name, avatar, score, maxCombo, verified = true }) {
     if (!playerId || score <= 0) return null;
+
+    const user = memoryState.users[playerId] || {};
+    const finalAvatar = avatar || user.avatar || 'frog-green';
+    const finalName = name || user.name || '神秘奶蛙';
 
     let existing = memoryState.leaderboard.find(item => item.id === playerId);
     if (existing) {
-        if (score > existing.score) {
+        if (score >= existing.score) {
             existing.score = score;
             existing.maxCombo = Math.max(existing.maxCombo || 0, maxCombo || 0);
-            existing.name = name || existing.name;
+            existing.name = finalName;
+            existing.avatar = finalAvatar;
             existing.verified = verified;
             existing.date = new Date().toISOString().split('T')[0];
         }
     } else {
         memoryState.leaderboard.push({
             id: playerId,
-            name: name || '神秘奶蛙',
+            name: finalName,
+            avatar: finalAvatar,
             score: Number(score),
             maxCombo: Number(maxCombo) || 0,
             verified: !!verified,
@@ -111,7 +117,7 @@ async function submitScore({ playerId, name, score, maxCombo, verified = true })
 
     // 计算当前名次
     const rank = memoryState.leaderboard.findIndex(item => item.id === playerId) + 1;
-    return { rank, score, maxCombo, verified };
+    return { rank, score, maxCombo, verified, name: finalName, avatar: finalAvatar };
 }
 
 /**

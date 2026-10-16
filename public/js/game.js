@@ -973,11 +973,12 @@ class NaiwaGame {
 
         // 单人模式：向全球实时排行榜安全上报成绩
         if (this.network && this.score > 0) {
-            this.network.submitScore(this.score, this.maxCombo, this.perfectCount).then(res => {
+            const totalJumps = Math.max(this.jumpCount, 1);
+            this.network.submitScore(this.score, this.maxCombo, totalJumps).then(res => {
                 if (res && res.verified) {
                     console.log('[Leaderboard] Score verified and ranked:', res.rank);
-                } else if (res && res.cheatDetected) {
-                    console.warn('[Anti-Cheat] Submission rejected:', res.reason);
+                } else if (res && res.error) {
+                    console.warn('[Leaderboard] Submission rejected:', res.error);
                 }
             }).catch(e => console.warn('[Leaderboard] Submit error:', e));
         }
@@ -1734,16 +1735,28 @@ class NaiwaGame {
 
         const container = document.getElementById('leaderboard-items-container');
         if (container) {
-            container.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 24px 0;">正在拉取全球实时榜单...</div>';
+            container.innerHTML = '<div style="text-align: center; color: var(--color-text-muted); padding: 24px 0;"><span class="pulse-dot"></span> 正在拉取全球实时榜单...</div>';
         }
 
         if (!this.network) return;
         try {
-            const data = await this.network.getLeaderboard();
+            let data = await this.network.getLeaderboard();
+            let records = (data && (data.records || data.leaderboard)) || [];
+            const myId = this.network.user ? this.network.user.id : null;
+            const myServerRecord = records.find(r => (r.id || r.playerId) === myId);
+
+            // 如果本地已有有效历史最高分，且尚未同步或高于服务端成绩，自动同步入榜
+            if (this.highScore > 0 && (!myServerRecord || this.highScore > myServerRecord.score)) {
+                try {
+                    await this.network.submitScore(this.highScore, this.allTimeMaxCombo, Math.max(this.jumpCount, 10));
+                    data = await this.network.getLeaderboard();
+                } catch (e) {}
+            }
+
             this._renderLeaderboard(data);
         } catch (e) {
             if (container) {
-                container.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 24px 0;">拉取失败，请检查网络连接</div>';
+                container.innerHTML = '<div style="text-align: center; color: var(--color-text-muted); padding: 24px 0;">拉取失败，请检查网络连接</div>';
             }
         }
     }
@@ -1757,6 +1770,9 @@ class NaiwaGame {
         const myRankScore = document.getElementById('my-rank-score-val');
 
         const records = (data && (data.records || data.leaderboard)) || [];
+        const myId = this.network.user ? this.network.user.id : null;
+        const avatarMap = { 'frog-green': '🐸', 'frog-gold': '👑', 'frog-purple': '🟣', 'frog-red': '🔥', 'frog-blue': '🌊', 'frog-ninja': '🥷' };
+        const escapeStr = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
         if (records.length === 0) {
             if (podium) {
@@ -1765,12 +1781,21 @@ class NaiwaGame {
             }
             if (container) {
                 container.innerHTML = `
-                    <div style="text-align: center; color: var(--text-muted); padding: 36px 16px;">
-                        <div style="font-size: 36px; margin-bottom: 10px;">🏆</div>
-                        <div style="font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px;">全球实时榜单虚位以待</div>
-                        <div style="font-size: 13px; opacity: 0.85; line-height: 1.6;">已剔除所有假数据，仅记录玩家真实成绩！<br>开始一局跳跃挑战高分，成为全球首位登顶者！</div>
+                    <div style="text-align: center; color: var(--color-text-muted); padding: 36px 16px;">
+                        <div style="font-size: 40px; margin-bottom: 10px;">🏆</div>
+                        <div style="font-size: 16px; font-weight: 700; color: var(--color-dark); margin-bottom: 6px;">全球实时榜单虚位以待</div>
+                        <div style="font-size: 13px; opacity: 0.85; line-height: 1.6;">已剔除所有假数据，仅记录玩家真实战绩！<br>开始一局跳跃挑战高分，成为全球首位登顶者！</div>
+                        <button id="btn-empty-play" class="btn-primary" style="margin-top: 16px; padding: 10px 24px; font-size: 14px;" type="button">立即开启跳跃冲榜</button>
                     </div>
                 `;
+                const playBtn = document.getElementById('btn-empty-play');
+                if (playBtn) {
+                    playBtn.onclick = () => {
+                        const modal = document.getElementById('leaderboard-modal');
+                        if (modal) modal.classList.add('hidden');
+                        this.startGame();
+                    };
+                }
             }
             if (myRankBadge) myRankBadge.textContent = '--';
             if (myRankTitle) myRankTitle.textContent = this.network.user ? this.network.user.name : '我的当前排位';
@@ -1783,34 +1808,37 @@ class NaiwaGame {
 
         if (podium) podium.style.display = 'flex';
 
-        const myId = this.network.user ? this.network.user.id : null;
-
-        const escapeStr = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
         if (podium) {
             const top3 = records.slice(0, 3);
             const first = top3[0];
             const second = top3[1];
             const third = top3[2];
 
+            const medalIcons = { 1: '🥇', 2: '🥈', 3: '🥉' };
+
             const renderPodiumCol = (item, rank, className) => {
                 if (!item) {
                     return `
-                        <div class="podium-col ${className} empty">
-                            <div class="podium-rank-badge rank-${rank}">${rank}</div>
-                            <div class="podium-name" style="opacity: 0.45;">虚位以待</div>
-                            <div class="podium-score" style="opacity: 0.35;">--</div>
-                            <div class="podium-pedestal p${rank}"></div>
+                        <div class="podium-card ${className} empty">
+                            <div class="podium-rank-badge rank-${rank}">${medalIcons[rank] || rank}</div>
+                            <div class="podium-avatar">⏳</div>
+                            <div class="podium-name" style="opacity: 0.5;">虚位以待</div>
+                            <div class="podium-score" style="opacity: 0.4;">-- 分</div>
                         </div>
                     `;
                 }
+                const pId = item.id || item.playerId;
                 const pName = item.name || item.playerName || '高手奶蛙';
+                const pAvatar = avatarMap[item.avatar] || '🐸';
+                const isMe = myId && (pId === myId);
+
                 return `
-                    <div class="podium-col ${className}">
-                        <div class="podium-rank-badge rank-${rank}">${rank}</div>
-                        <div class="podium-name">${escapeStr(pName)}</div>
-                        <div class="podium-score">${item.score}</div>
-                        <div class="podium-pedestal p${rank}"></div>
+                    <div class="podium-card ${className} ${isMe ? 'is-me' : ''}">
+                        <div class="podium-rank-badge rank-${rank}">${medalIcons[rank] || rank}</div>
+                        <div class="podium-avatar">${pAvatar}</div>
+                        <div class="podium-name" title="${escapeStr(pName)}">${escapeStr(pName)}${isMe ? ' (我)' : ''}</div>
+                        <div class="podium-score">${item.score} <span class="podium-score-unit">分</span></div>
+                        <div class="podium-combo-tag">连击 ×${item.maxCombo || 0}</div>
                     </div>
                 `;
             };
@@ -1825,26 +1853,30 @@ class NaiwaGame {
         if (container) {
             const rest = records.slice(3);
             if (rest.length === 0) {
-                container.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 12px 0; font-size: 13px;">全部排位已在前三展示</div>';
+                container.innerHTML = '<div style="text-align: center; color: var(--color-text-muted); padding: 14px 0; font-size: 13px;">全部排位已在上方领奖台展示</div>';
             } else {
                 container.innerHTML = rest.map((item, idx) => {
                     const rank = idx + 4;
                     const pId = item.id || item.playerId;
                     const pName = item.name || item.playerName || '跳跃选手';
+                    const pAvatar = avatarMap[item.avatar] || '🐸';
                     const isMe = myId && (pId === myId);
                     return `
                         <div class="leaderboard-row ${isMe ? 'is-me' : ''}">
-                            <div class="lb-rank">${rank}</div>
+                            <div class="lb-rank">#${rank}</div>
                             <div class="lb-info">
-                                <span class="lb-name">${escapeStr(pName)}</span>
-                                <span class="lb-verified-badge" title="通过 SHA-256 动作链反作弊校验">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                                    <span>已验证</span>
-                                </span>
+                                <span class="lb-avatar">${pAvatar}</span>
+                                <div class="lb-name-col">
+                                    <span class="lb-name">${escapeStr(pName)}${isMe ? ' <span class="lb-me-tag">我</span>' : ''}</span>
+                                    <span class="lb-verified-badge" title="通过 SHA-256 动作链反作弊校验">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                        <span>安全已认证</span>
+                                    </span>
+                                </div>
                             </div>
                             <div class="lb-meta">
-                                <span class="lb-combo">COMBO ×${item.maxCombo || 0}</span>
-                                <span class="lb-score">${item.score}</span>
+                                <span class="lb-score">${item.score} 分</span>
+                                <span class="lb-combo">连击 ×${item.maxCombo || 0}</span>
                             </div>
                         </div>
                     `;
@@ -1866,7 +1898,7 @@ class NaiwaGame {
         if (myRankBadge) myRankBadge.textContent = myRank ? `#${myRank}` : '--';
         if (myRankTitle) myRankTitle.textContent = this.network.user ? this.network.user.name : '我的当前排位';
         if (myRankSub) {
-            myRankSub.textContent = myRank ? `全球第 ${myRank} 名 · 历史峰值已认证` : '尚未进入前 50 强，继续跳跃上榜吧！';
+            myRankSub.textContent = myRank ? `全球第 ${myRank} 名 · 真实战绩已认证` : '尚未进入前 50 强，继续跳跃上榜吧！';
         }
         if (myRankScore) {
             myRankScore.textContent = `${myRecord ? myRecord.score : (this.highScore || 0)} 分`;

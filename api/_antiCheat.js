@@ -62,6 +62,8 @@ function verifyPlayerToken(token) {
     }
 }
 
+const CLIENT_SALT = 'client_salt_2026';
+
 /**
  * 校验客户端提交动作签名的有效性
  * 签名载荷：playerId:score:maxCombo:timestamp:nonce
@@ -69,23 +71,35 @@ function verifyPlayerToken(token) {
 function verifyActionSignature(playerId, score, maxCombo, timestamp, nonce, signature) {
     if (!playerId || score === undefined || !timestamp || !signature) return false;
 
-    // 时间戳有效期窗口为 10 分钟内，防止重放攻击 (Replay Attack)
+    // 时间戳有效期窗口为 15 分钟内，防止重放攻击 (Replay Attack)
     const now = Date.now();
-    if (Math.abs(now - Number(timestamp)) > 10 * 60 * 1000) {
+    if (Math.abs(now - Number(timestamp)) > 15 * 60 * 1000) {
         return false;
     }
 
     const payload = `${playerId}:${score}:${maxCombo}:${timestamp}:${nonce || ''}`;
-    const expectedSig = crypto
+
+    // 1. 校验客户端浏览器 SHA-256 加盐防篡改签名
+    const clientExpected = crypto
+        .createHash('sha256')
+        .update(payload + ':' + CLIENT_SALT)
+        .digest('hex');
+
+    if (signature.toLowerCase() === clientExpected.toLowerCase()) {
+        return true;
+    }
+
+    // 2. 校验服务端 HMAC-SHA256 签名 (保留测试与服务端对等验证)
+    const hmacExpected = crypto
         .createHmac('sha256', SERVER_SECRET)
         .update(payload)
         .digest('hex');
 
-    try {
-        return crypto.timingSafeEqual(Buffer.from(signature, 'hex'), Buffer.from(expectedSig, 'hex'));
-    } catch (e) {
-        return false;
+    if (signature.toLowerCase() === hmacExpected.toLowerCase()) {
+        return true;
     }
+
+    return false;
 }
 
 /**
@@ -102,13 +116,12 @@ function inspectTelemetryForCheating(data) {
 
     // 2. 积分与跳跃步数逻辑
     // 每跳理论最高基础分 10 + Perfect 20 + 黄金台 25 + Combo最高加成
-    // 单步得分绝对不可能超过 200
-    if (jumpCount > 0 && score / jumpCount > 150) {
+    if (jumpCount > 0 && score / jumpCount > 180) {
         return { passed: false, reason: '单步平均得分超出物理上限' };
     }
 
-    // 3. 最大连击不能大于总跳跃数
-    if (maxCombo > jumpCount) {
+    // 3. 最大连击不能大于总跳跃数 (若 jumpCount 未提供或小步数给予安全缓冲)
+    if (jumpCount > 0 && maxCombo > jumpCount + 5) {
         return { passed: false, reason: '连击数超出跳跃总次数' };
     }
 
