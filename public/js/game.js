@@ -965,9 +965,31 @@ class NaiwaGame {
         window.soundManager.playGameOver();
         this._saveStorage();
 
-        // 1v1 对战模式下坠落处理
+        // 1v1 对战模式下我方失足坠落处理：
         if (this.mode === 'BATTLE') {
-            this._onBattleOver('opponent');
+            const myFinalScore = this.score;
+            const oppFinalScore = this.opponentScore || 0;
+
+            // 向服务端同步我方失足状态与最终得分
+            if (this.network && this.battleRoomId) {
+                this.network.syncBattle(this.battleRoomId, {
+                    alive: false,
+                    state: 'GAMEOVER',
+                    score: myFinalScore,
+                    step: this.platforms.currentIndex
+                }).catch(() => {});
+            }
+
+            // 胜负判定：严格依据双方最终累计总得分比拼，绝不使用分差提前判胜！
+            setTimeout(() => {
+                if (myFinalScore > oppFinalScore) {
+                    this._onBattleOver('me', `最终总分胜出！你斩获 ${myFinalScore} 分，对手获得 ${oppFinalScore} 分！`);
+                } else if (myFinalScore < oppFinalScore) {
+                    this._onBattleOver('opponent', `最终总分较低：你获得 ${myFinalScore} 分，对手斩获 ${oppFinalScore} 分。`);
+                } else {
+                    this._onBattleOver('draw', `双方总分同为 ${myFinalScore} 分，势均力敌！`);
+                }
+            }, 600);
             return;
         }
 
@@ -1328,6 +1350,7 @@ class NaiwaGame {
         this.battleSeed = matchData.seed;
         this.opponent = matchData.opponent;
         this.opponentScore = 0;
+        this.opponentHasFallen = false;
 
         const vsModal = document.getElementById('match-found-modal');
         const vsMyName = document.getElementById('vs-my-name');
@@ -1387,17 +1410,10 @@ class NaiwaGame {
                 const res = await this.network.syncBattle(this.battleRoomId, telemetry);
                 if (!res) return;
 
-                // 1. 投降认输或房间终结检查
-                if (res.roomStatus === 'FINISHED' || (res.room && res.room.status === 'finished')) {
-                    const isMe = (res.winner === this.network.user?.id || (res.room && res.room.winner === this.network.user?.id));
-                    const surrenderText = res.surrenderedBy ? (isMe ? '对手主动投降！' : '我方已投降认输') : null;
-                    this._onBattleOver(isMe ? 'me' : 'opponent', surrenderText);
-                    return;
-                }
-
+                // 1. 投降认输检查 (唯一允许在双方未坠落前的提前结算)
                 if (res.surrenderedBy) {
                     const isMe = (res.surrenderedBy !== this.network.user?.id);
-                    this._onBattleOver(isMe ? 'me' : 'opponent', isMe ? '对手主动投降！' : '我方已投降认输');
+                    this._onBattleOver(isMe ? 'me' : 'opponent', isMe ? '对手主动投降认输！' : '我方已投降认输');
                     return;
                 }
 
@@ -1430,32 +1446,43 @@ class NaiwaGame {
                     if (oppScoreEl) oppScoreEl.textContent = this.opponentScore.toString();
                     if (oppStepEl) oppStepEl.textContent = `台阶 ${opp.step !== undefined ? opp.step : (opp.progress || 0)}`;
 
+                    // 对手坠落状态更新：仅作为播报，绝不强行中断我方正常跳跃！
+                    if (opp.alive === false || opp.state === 'FALLING' || opp.state === 'GAMEOVER') {
+                        if (!this.opponentHasFallen) {
+                            this.opponentHasFallen = true;
+                            this._showChatToast('对决播报', `⚔️ 对手已失足坠落！最终成绩锁定: ${this.opponentScore} 分`, false);
+                            this._showFloatingFeedback(`对手已坠落 (锁定 ${this.opponentScore}分)`, 'good');
+                        }
+                    }
+
+                    // 顶部赛况指示器：明确比拼最终总得分，杜绝分差胜负误解
                     const leadEl = document.getElementById('battle-lead-text');
                     if (leadEl) {
-                        if (this.score > this.opponentScore) {
-                            leadEl.textContent = `领先 +${this.score - this.opponentScore}`;
-                            leadEl.style.color = '#10B981';
-                        } else if (this.score < this.opponentScore) {
-                            leadEl.textContent = `落后 -${this.opponentScore - this.score}`;
-                            leadEl.style.color = '#EF4444';
+                        if (this.opponentHasFallen) {
+                            if (this.score > this.opponentScore) {
+                                leadEl.textContent = `已超对手 (当前 ${this.score} vs 对手锁定 ${this.opponentScore})`;
+                                leadEl.style.color = '#10B981';
+                            } else {
+                                leadEl.textContent = `追赶目标: 超过 ${this.opponentScore} 分 (对手已失足)`;
+                                leadEl.style.color = '#F59E0B';
+                            }
                         } else {
-                            leadEl.textContent = '齐头并进';
-                            leadEl.style.color = 'var(--text-muted)';
+                            if (this.score > this.opponentScore) {
+                                leadEl.textContent = `实时领先 (${this.score} vs ${this.opponentScore}) · 按终局总分定胜负`;
+                                leadEl.style.color = '#10B981';
+                            } else if (this.score < this.opponentScore) {
+                                leadEl.textContent = `落后追赶 (${this.score} vs ${this.opponentScore}) · 按终局总分定胜负`;
+                                leadEl.style.color = '#EF4444';
+                            } else {
+                                leadEl.textContent = `总分持平 (${this.score} 分) · 按终局总分定胜负`;
+                                leadEl.style.color = 'var(--text-muted)';
+                            }
                         }
                     }
 
                     // 4. 实时赛道双雄进度映射
                     const oppStep = opp.step !== undefined ? opp.step : (opp.progress || 0);
                     this._updateRaceTrack(this.platforms.currentIndex, oppStep);
-
-                    if ((opp.state === 'FALLING' || opp.state === 'GAMEOVER') &&
-                        (this.state === 'READY' || this.state === 'CHARGING' || this.state === 'JUMPING' || this.state === 'LANDED')) {
-                        setTimeout(() => {
-                            if (this.state !== 'GAMEOVER') {
-                                this._onBattleOver('me', '对手失足坠落！');
-                            }
-                        }, 600);
-                    }
                 }
             } catch (e) {
                 console.warn('[Battle Sync] Error:', e);
@@ -1470,12 +1497,14 @@ class NaiwaGame {
 
         const diff = myStep - oppStep;
         if (distLabel) {
-            if (diff > 0) {
-                distLabel.textContent = `领跑中 (+${diff} 阶)`;
+            if (this.opponentHasFallen) {
+                distLabel.textContent = `我: 第 ${myStep} 阶 · 对手已失足 (第 ${oppStep} 阶)`;
+            } else if (diff > 0) {
+                distLabel.textContent = `我方领先 ${diff} 阶 · 最终比拼累计总得分`;
             } else if (diff < 0) {
-                distLabel.textContent = `追赶中 (${diff} 阶)`;
+                distLabel.textContent = `对手领先 ${Math.abs(diff)} 阶 · 最终比拼累计总得分`;
             } else {
-                distLabel.textContent = '实时竞速: 并驾齐驱';
+                distLabel.textContent = '并驾齐驱 (同阶) · 最终比拼累计总得分';
             }
         }
 
@@ -1505,6 +1534,7 @@ class NaiwaGame {
         if (modal) modal.classList.remove('hidden');
 
         const isMeWinner = (winner === 'me' || (this.network && this.network.user && winner === this.network.user.id));
+        const isDraw = (winner === 'draw');
 
         const pill = document.getElementById('battle-result-pill');
         const title = document.getElementById('battle-result-title');
@@ -1526,16 +1556,24 @@ class NaiwaGame {
                 pill.textContent = 'VICTORY';
                 pill.className = 'modal-pill-tag tag-success';
             }
-            if (title) title.textContent = customReason || '旗开得胜！';
-            if (desc) desc.textContent = customReason ? `判定胜出：${customReason}` : '你在跳跃对决中技高一筹，成功击败对手！';
+            if (title) title.textContent = '旗开得胜！';
+            if (desc) desc.textContent = customReason || `你的最终总得分 (${this.score} 分) 胜过对手 (${this.opponentScore || 0} 分)！`;
+        } else if (isDraw) {
+            window.soundManager.playClick();
+            if (pill) {
+                pill.textContent = 'DRAW';
+                pill.className = 'modal-pill-tag';
+            }
+            if (title) title.textContent = '势均力敌！';
+            if (desc) desc.textContent = customReason || `双方最终同积 ${this.score} 分，握手言和！`;
         } else {
             window.soundManager.playGameOver();
             if (pill) {
                 pill.textContent = 'DEFEAT';
                 pill.className = 'modal-pill-tag tag-warning';
             }
-            if (title) title.textContent = customReason || '惜败收场';
-            if (desc) desc.textContent = customReason ? `本局结束：${customReason}` : '稳住节奏，下次定能战胜强敌！';
+            if (title) title.textContent = '惜败收场';
+            if (desc) desc.textContent = customReason || `对手最终总得分 (${this.opponentScore || 0} 分) 胜出。`;
         }
     }
 

@@ -564,15 +564,19 @@ function updateRoomState(roomId, playerId, telemetry) {
         }
     }
 
-    // 检查比赛终局状态
-    if (!me.alive && opp.alive) {
+    // 终局胜负判定：绝不使用分差提前判胜！
+    // 只有当双方均失足坠落（或者有人主动投降）后，严格以最终总得分高低决出胜负！
+    if (!me.alive && !opp.alive && room.status === 'PLAYING') {
         room.status = 'FINISHED';
-        room.winner = opp.id;
-        _recordDuelResult(opp.id, me.id);
-    } else if (me.alive && !opp.alive) {
-        room.status = 'FINISHED';
-        room.winner = me.id;
-        _recordDuelResult(me.id, opp.id);
+        if (room.player1.score > room.player2.score) {
+            room.winner = room.player1.id;
+            _recordDuelResult(room.player1.id, room.player2.id);
+        } else if (room.player2.score > room.player1.score) {
+            room.winner = room.player2.id;
+            _recordDuelResult(room.player2.id, room.player1.id);
+        } else {
+            room.winner = 'draw';
+        }
     }
 
     return {
@@ -680,19 +684,39 @@ function _simulateAiStep(room, humanPlayer) {
     const now = Date.now();
     if (now < room.startTime) return;
 
-    // AI 跳跃间隔大约 1.2s ~ 2.4s 一次
+    // 若人类玩家已失足，且 AI 分数已经超过人类玩家，AI 自然胜出并收官
+    if (!humanPlayer.alive && ai.score > humanPlayer.score) {
+        ai.alive = false;
+        ai.state = 'GAMEOVER';
+        room.status = 'FINISHED';
+        room.winner = ai.id;
+        _recordDuelResult(ai.id, humanPlayer.id);
+        return;
+    }
+
+    // AI 跳跃间隔大约 1.2s ~ 1.9s 一次
     if (!ai.nextJumpTime) {
-        ai.nextJumpTime = now + 1200 + Math.random() * 800;
+        ai.nextJumpTime = now + 1200 + Math.random() * 700;
     }
 
     if (now >= ai.nextJumpTime) {
-        // AI 判断概率：根据 skill 判定是否失误
+        // 根据评级设定目标跳跃耐力区间 (380 ~ 1800分)
+        const targetCap = ai.targetCap || (ai.rating >= 1500 ? 1800 : (ai.rating >= 1350 ? 1000 : (ai.rating >= 1200 ? 600 : 380)));
+        ai.targetCap = targetCap;
+
+        // 达到目标得分前保持 98.5% 高稳定性；达到或进入地狱模式后逐步增加失误概率
+        let successRate = 0.985;
+        if (ai.score >= targetCap) {
+            successRate = 0.88;
+        }
+        if (room.isHellMode) {
+            successRate = Math.min(successRate, 0.91);
+        }
+
         const successRoll = Math.random();
-        // 在地狱模式下，AI 失误率也会轻微上升
-        const threshold = room.isHellMode ? (room.aiSkill * 0.92) : room.aiSkill;
-        if (successRoll < threshold || ai.step < 3) {
+        if (successRoll < successRate) {
             ai.step++;
-            const isPerfect = Math.random() > 0.45;
+            const isPerfect = Math.random() > 0.42;
             if (isPerfect) {
                 ai.combo++;
                 ai.score += 30 + (ai.combo - 1) * 10;
@@ -701,11 +725,20 @@ function _simulateAiStep(room, humanPlayer) {
                 ai.score += 15;
             }
             ai.state = 'LANDED';
-            ai.nextJumpTime = now + 1300 + Math.random() * 900;
+            const jumpInterval = room.isHellMode ? (1000 + Math.random() * 500) : (1200 + Math.random() * 700);
+            ai.nextJumpTime = now + jumpInterval;
         } else {
-            // AI 偶发失误坠落
+            // AI 偶发失误坠落，锁定最终成绩，向房间广播失误通知
             ai.alive = false;
             ai.state = 'FALLING';
+            if (!room.messages) room.messages = [];
+            room.messages.push({
+                id: 'ai_fall_' + Date.now(),
+                senderId: ai.id,
+                senderName: ai.name,
+                text: `呱！我踩空坠落了！最终成绩 ${ai.score} 分，看你的了！`,
+                time: Date.now()
+            });
         }
     }
 }
