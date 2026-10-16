@@ -16,7 +16,27 @@
 
 ---
 
-## 一、技术架构总览
+## 一、技术架构与目录规范
+
+```text
+naiwa-jump/
+├── public/                 # 客户端静态前端资源 (Vercel Edge CDN 全球托管，根路径 / 自动映射)
+│   ├── index.html          # 游戏主入口
+│   ├── css/style.css       # 游戏视觉样式表
+│   ├── js/                 # 游戏核心逻辑 (game.js, network.js, obstacles.js, player.js 等)
+│   ├── libs/               # Three.js 渲染器, GLTFLoader, JSZip
+│   ├── audio/              # 跳跃动作音效与背景音乐
+│   ├── model_data.js       # 离线兜底模型数据
+│   └── naiwa.glb           # 奶蛙 3D 原始模型
+├── api/                    # Vercel Serverless 云函数 (Node.js 运行时自动编译为独立微服务)
+│   ├── auth.js             # 身份签发与改名接口 (/api/auth)
+│   ├── leaderboard.js      # 全球排行榜与防作弊验签 (/api/leaderboard)
+│   ├── match.js            # 1v1 实时对抗撮合、房间聊天与状态同步 (/api/match)
+│   ├── _antiCheat.js       # HMAC-SHA256 签名与物理轨迹审查
+│   └── _storage.js         # /tmp 本地缓存与分布式 KV 存储适配
+├── vercel.json             # Vercel 路由与跨域安全头配置
+└── package.json            # 依赖与测试指令配置
+```
 
 ```
                         ┌──────────────────────────────────────────────┐

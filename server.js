@@ -71,10 +71,17 @@ const server = http.createServer(async (req, res) => {
         }
     }
 
-    // 2. 静态资源托管
-    let filePath = path.join(__dirname, decodeURIComponent(pathname));
-    if (pathname === '/') {
-        filePath = path.join(__dirname, 'index.html');
+    // 2. 静态资源托管 (优先查找 public/ 目录，兼容根目录)
+    let cleanPath = decodeURIComponent(pathname);
+    let filePath = path.join(__dirname, 'public', cleanPath);
+    if (cleanPath === '/' || cleanPath === '') {
+        filePath = path.join(__dirname, 'public', 'index.html');
+    }
+    if (!fs.existsSync(filePath)) {
+        filePath = path.join(__dirname, cleanPath);
+        if (cleanPath === '/' || cleanPath === '') {
+            filePath = path.join(__dirname, 'index.html');
+        }
     }
 
     fs.stat(filePath, (err, stats) => {
