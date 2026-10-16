@@ -3,6 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="format-detection" content="telephone=no">
+    <meta name="theme-color" content="#4ea7f2">
     <title>奶蛙跳一跳 · NAIWA JUMP</title>
     <link rel="stylesheet" href="css/style.css">
     
@@ -59,7 +63,7 @@
 
         <!-- 2. 主菜单界面 -->
         <div id="main-menu" class="hidden">
-            <!-- 顶部玩家名片条 -->
+            <!-- 顶部玩家名片条与大厅待匹配状态 -->
             <div class="menu-user-bar">
                 <div id="user-profile-badge" class="user-profile-badge" role="button" title="点击修改选手昵称与头像">
                     <div class="user-avatar-wrap">
@@ -75,6 +79,13 @@
                             <span>SHA-256 验签就绪</span>
                         </span>
                     </div>
+                </div>
+
+                <!-- 大厅自动待匹配状态标识 (停留在大厅自动可被匹配或发起挑战) -->
+                <div id="lobby-match-status" class="lobby-match-status" title="停留在大厅自动待匹配，随时可收到其他玩家发起的1v1挑战">
+                    <span class="status-pulse-dot"></span>
+                    <span id="lobby-match-text">大厅待机中</span>
+                    <span id="lobby-online-count" class="lobby-online-count">1人在线</span>
                 </div>
             </div>
 
@@ -685,6 +696,37 @@
                 <div class="modal-actions">
                     <button id="btn-confirm-surrender" class="btn-primary" style="background: #ef4444;" type="button">确认认输</button>
                     <button id="btn-cancel-surrender" class="btn-secondary" type="button">继续战斗</button>
+                </div>
+            </div>
+        <!-- 17. 1v1 对决挑战邀请弹窗 (当其他玩家在大厅发起对决时主动弹窗询问) -->
+        <div id="duel-invite-modal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+            <div class="modal-card duel-invite-card">
+                <div class="modal-pill-tag tag-battle">1V1 DUEL CHALLENGE</div>
+                <h2 class="modal-title">⚔️ 收到对决战书！</h2>
+                <p class="modal-desc">大厅在线选手向你发起了 1v1 跳跃同台竞技邀请</p>
+
+                <div class="duel-invite-box">
+                    <div class="duel-invite-avatar" id="duel-invite-avatar">🐸</div>
+                    <div class="duel-invite-info">
+                        <div class="duel-invite-name" id="duel-invite-name">跳跃高手</div>
+                        <div class="duel-invite-tag">同台随机赛道 · 失足即败</div>
+                    </div>
+                </div>
+
+                <!-- 倒计时进度条 -->
+                <div class="duel-invite-timer-wrap">
+                    <div class="duel-timer-label">应战倒计时 <span id="duel-invite-seconds">15</span>s</div>
+                    <div class="duel-timer-bar">
+                        <div id="duel-timer-bar-inner" class="duel-timer-bar-inner"></div>
+                    </div>
+                </div>
+
+                <div class="modal-actions duel-invite-actions">
+                    <button id="btn-accept-duel" class="btn-primary btn-accept-glow" type="button">
+                        <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                        <span>🔥 立即应战</span>
+                    </button>
+                    <button id="btn-decline-duel" class="btn-secondary" type="button">稍后再说 (谢绝)</button>
                 </div>
             </div>
         </div>

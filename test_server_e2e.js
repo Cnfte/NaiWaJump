@@ -85,7 +85,30 @@ async function run() {
     console.log('Leaderboard records count:', lbJson.records?.length);
     if (!lbJson.records || !Array.isArray(lbJson.records)) throw new Error('Leaderboard failed');
 
-    // 7. API Match Start
+    // 7. 测试大厅待机、待匹配自动探测与 1v1 战书邀请流程
+    console.log('--- 7. 测试大厅在线待匹配与对决战书邀请 ---');
+    // 创建第二位玩家 (作为大厅待机被挑战者)
+    const user2AuthRes = await fetchUrl('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'guest' })
+    });
+    const user2Token = JSON.parse(user2AuthRes.body).token;
+
+    // 玩家 2 停留在主界面大厅，自动待机
+    const lobbyPingRes = await fetchUrl('/api/match', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${user2Token}`
+        },
+        body: JSON.stringify({ action: 'lobby_ping', status: 'IDLE' })
+    });
+    const lobbyPingJson = JSON.parse(lobbyPingRes.body);
+    console.log('Player 2 lobby ping ok:', lobbyPingJson.ok, 'active count:', lobbyPingJson.activeLobbyCount);
+    if (!lobbyPingJson.ok) throw new Error('Lobby ping failed');
+
+    // 玩家 1 发起对决邀请
     const matchStartRes = await fetchUrl('/api/match', {
         method: 'POST',
         headers: {
@@ -94,25 +117,51 @@ async function run() {
         },
         body: JSON.stringify({ action: 'join' })
     });
-    console.log('API Match join status:', matchStartRes.status);
     const matchJson = JSON.parse(matchStartRes.body);
-    console.log('Match join status:', matchJson.status);
+    console.log('Player 1 match action status:', matchJson.status);
 
-    // If matched immediately or in queue, let's poll or use room
     let roomId = matchJson.roomId;
-    if (!roomId) {
-        // wait 3.1s for AI fallback match
-        await new Promise(r => setTimeout(r, 3100));
-        const pollRes = await fetchUrl('/api/match', {
+    if (matchJson.status === 'INVITED_WAITING') {
+        const inviteId = matchJson.inviteId;
+        console.log('Invite sent to Player 2, inviteId:', inviteId);
+
+        // 玩家 2 下一次心跳检测到待决战书
+        const player2CheckRes = await fetchUrl('/api/match', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${user2Token}`
+            },
+            body: JSON.stringify({ action: 'lobby_ping', status: 'IDLE' })
+        });
+        const p2CheckJson = JSON.parse(player2CheckRes.body);
+        console.log('Player 2 received pending invite:', !!p2CheckJson.pendingInvite);
+        if (!p2CheckJson.pendingInvite) throw new Error('Pending invite not detected');
+
+        // 玩家 2 弹窗点击“立即应战”
+        const acceptRes = await fetchUrl('/api/match', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${user2Token}`
+            },
+            body: JSON.stringify({ action: 'respond_invite', inviteId, accept: true })
+        });
+        const acceptJson = JSON.parse(acceptRes.body);
+        console.log('Player 2 accepted invite, matched room:', acceptJson.roomId);
+        roomId = acceptJson.roomId;
+
+        // 玩家 1 轮询检测到已被接受
+        const p1CheckRes = await fetchUrl('/api/match', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${userToken}`
             },
-            body: JSON.stringify({ action: 'poll' })
+            body: JSON.stringify({ action: 'check_invite', inviteId })
         });
-        const pollJson = JSON.parse(pollRes.body);
-        roomId = pollJson.roomId;
+        const p1CheckJson = JSON.parse(p1CheckRes.body);
+        console.log('Player 1 check invite result status:', p1CheckJson.status, 'matched room:', p1CheckJson.roomId);
     }
 
     if (roomId) {

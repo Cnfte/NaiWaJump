@@ -29,7 +29,9 @@ let memoryState = {
     users: {},
     queue: [],
     rooms: {},
-    battleStats: {}
+    battleStats: {},
+    lobbyPlayers: {}, // { [playerId]: { id, name, avatar, lastSeen, status: 'IDLE'|'INVITED'|'PLAYING' } }
+    invites: {}       // { [inviteId]: { id, from, to, status: 'PENDING'|'ACCEPTED'|'DECLINED'|'EXPIRED', roomId, createdAt, expiresAt } }
 };
 
 // 尝试从 /tmp 恢复
@@ -285,6 +287,226 @@ function findMatchFor(playerId) {
     return null;
 }
 
+function cleanUpLobby() {
+    const now = Date.now();
+    for (const [id, p] of Object.entries(memoryState.lobbyPlayers)) {
+        if (now - p.lastSeen > 12000) {
+            delete memoryState.lobbyPlayers[id];
+        }
+    }
+    for (const [id, inv] of Object.entries(memoryState.invites)) {
+        if (inv.status === 'PENDING' && now > inv.expiresAt) {
+            inv.status = 'EXPIRED';
+        }
+        if (now - inv.createdAt > 60000) {
+            delete memoryState.invites[id];
+        }
+    }
+}
+
+function updateLobbyPresence(player, status = 'IDLE') {
+    cleanUpLobby();
+    if (!player || !player.id) return { ok: false };
+    
+    const known = memoryState.users[player.id];
+    const name = (known && known.name) || player.name || '奶蛙选手';
+    const avatar = (known && known.avatar) || player.avatar || 'frog-green';
+
+    memoryState.lobbyPlayers[player.id] = {
+        id: player.id,
+        name,
+        avatar,
+        lastSeen: Date.now(),
+        status: status || 'IDLE'
+    };
+
+    let pendingInvite = null;
+    const now = Date.now();
+    for (const inv of Object.values(memoryState.invites)) {
+        if (inv.to && inv.to.id === player.id && inv.status === 'PENDING' && inv.expiresAt > now) {
+            pendingInvite = {
+                inviteId: inv.id,
+                from: inv.from,
+                expiresAt: inv.expiresAt,
+                remainingSeconds: Math.max(1, Math.round((inv.expiresAt - now) / 1000))
+            };
+            break;
+        }
+    }
+
+    const activeCount = Object.keys(memoryState.lobbyPlayers).length;
+    return {
+        ok: true,
+        activeLobbyCount: activeCount,
+        pendingInvite
+    };
+}
+
+function createDuelInvite(fromPlayer, targetPlayerId = null) {
+    cleanUpLobby();
+    let target = null;
+    if (targetPlayerId) {
+        target = memoryState.lobbyPlayers[targetPlayerId];
+    } else {
+        const candidates = Object.values(memoryState.lobbyPlayers).filter(p => 
+            p.id !== fromPlayer.id && 
+            p.status === 'IDLE' && 
+            (Date.now() - p.lastSeen) <= 8000
+        );
+        if (candidates.length > 0) {
+            candidates.sort((a, b) => b.lastSeen - a.lastSeen);
+            target = candidates[0];
+        }
+    }
+
+    if (!target) {
+        return { ok: false, status: 'NO_CANDIDATE', message: '大厅暂无其他待机选手' };
+    }
+
+    const inviteId = 'inv_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+    const expiresAt = Date.now() + 15000;
+    const invite = {
+        id: inviteId,
+        from: {
+            id: fromPlayer.id,
+            name: fromPlayer.name || '挑战者',
+            avatar: fromPlayer.avatar || 'frog-green'
+        },
+        to: {
+            id: target.id,
+            name: target.name || '守擂奶蛙',
+            avatar: target.avatar || 'frog-green'
+        },
+        status: 'PENDING',
+        roomId: null,
+        createdAt: Date.now(),
+        expiresAt
+    };
+
+    memoryState.invites[inviteId] = invite;
+    target.status = 'INVITED';
+
+    return {
+        ok: true,
+        status: 'INVITED_WAITING',
+        inviteId,
+        targetPlayer: invite.to,
+        expiresAt,
+        remainingSeconds: 15
+    };
+}
+
+function respondDuelInvite(inviteId, playerId, accept = true) {
+    cleanUpLobby();
+    const invite = memoryState.invites[inviteId];
+    if (!invite || invite.to.id !== playerId) {
+        return { ok: false, error: '邀请无效或已过期' };
+    }
+
+    if (invite.status !== 'PENDING') {
+        return { ok: false, error: '邀请已被处理或已失效', status: invite.status };
+    }
+
+    if (accept) {
+        invite.status = 'ACCEPTED';
+        const roomId = 'room_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+        const seed = Math.floor(Math.random() * 1000000) + 1;
+
+        const room = {
+            id: roomId,
+            seed,
+            isAi: false,
+            isHellMode: false,
+            hellModeTriggeredAt: null,
+            messages: [],
+            createdAt: Date.now(),
+            startTime: Date.now() + 2500,
+            status: 'PLAYING',
+            player1: {
+                id: invite.from.id,
+                name: invite.from.name,
+                avatar: invite.from.avatar,
+                step: 0, score: 0, combo: 0, pos: { x: 0, y: 0, z: 0 }, state: 'READY', charge: 0, alive: true, lastSync: Date.now()
+            },
+            player2: {
+                id: invite.to.id,
+                name: invite.to.name,
+                avatar: invite.to.avatar,
+                step: 0, score: 0, combo: 0, pos: { x: 0, y: 0, z: 0 }, state: 'READY', charge: 0, alive: true, lastSync: Date.now()
+            }
+        };
+
+        memoryState.rooms[roomId] = room;
+        invite.roomId = roomId;
+
+        if (memoryState.lobbyPlayers[invite.from.id]) memoryState.lobbyPlayers[invite.from.id].status = 'PLAYING';
+        if (memoryState.lobbyPlayers[invite.to.id]) memoryState.lobbyPlayers[invite.to.id].status = 'PLAYING';
+
+        return {
+            ok: true,
+            status: 'MATCHED',
+            roomId,
+            seed,
+            startTime: room.startTime,
+            opponent: room.player1
+        };
+    } else {
+        invite.status = 'DECLINED';
+        if (memoryState.lobbyPlayers[invite.to.id]) memoryState.lobbyPlayers[invite.to.id].status = 'IDLE';
+        return {
+            ok: true,
+            status: 'DECLINED'
+        };
+    }
+}
+
+function checkInviteStatus(inviteId) {
+    cleanUpLobby();
+    const invite = memoryState.invites[inviteId];
+    if (!invite) return { ok: false, status: 'NOT_FOUND' };
+
+    if (invite.status === 'ACCEPTED' && invite.roomId) {
+        const room = memoryState.rooms[invite.roomId];
+        if (room) {
+            return {
+                ok: true,
+                status: 'MATCHED',
+                roomId: room.id,
+                seed: room.seed,
+                startTime: room.startTime,
+                opponent: room.player2
+            };
+        }
+    }
+
+    if (invite.status === 'DECLINED') {
+        return { ok: true, status: 'DECLINED', message: '对方谢绝了挑战' };
+    }
+
+    if (invite.status === 'EXPIRED' || Date.now() > invite.expiresAt) {
+        invite.status = 'EXPIRED';
+        return { ok: true, status: 'EXPIRED', message: '对方应战超时' };
+    }
+
+    return {
+        ok: true,
+        status: 'PENDING',
+        remainingSeconds: Math.max(1, Math.round((invite.expiresAt - Date.now()) / 1000))
+    };
+}
+
+function cancelDuelInvite(inviteId, playerId) {
+    const invite = memoryState.invites[inviteId];
+    if (invite && (invite.from.id === playerId || invite.to.id === playerId)) {
+        invite.status = 'CANCELLED';
+        if (memoryState.lobbyPlayers[invite.to.id] && memoryState.lobbyPlayers[invite.to.id].status === 'INVITED') {
+            memoryState.lobbyPlayers[invite.to.id].status = 'IDLE';
+        }
+        return { ok: true, status: 'CANCELLED' };
+    }
+    return { ok: false, error: '邀请不存在' };
+}
+
 function getRoom(roomId) {
     return memoryState.rooms[roomId] || null;
 }
@@ -507,5 +729,10 @@ module.exports = {
     updateRoomState,
     finishRoom,
     addRoomMessage,
-    surrenderRoom
+    surrenderRoom,
+    updateLobbyPresence,
+    createDuelInvite,
+    respondDuelInvite,
+    checkInviteStatus,
+    cancelDuelInvite
 };

@@ -249,6 +249,123 @@ class NetworkManager {
     // ================== 多人对战匹配与状态同步 ==================
 
     /**
+     * 开启大厅心跳与待决战书实时侦听
+     * 只要停留在主界面，自动作为“待匹配”在线状态
+     */
+    startLobbyPresence(onInviteReceived, onLobbyStats) {
+        this.stopLobbyPresence();
+        this.lobbyActive = true;
+        this.onInviteReceived = onInviteReceived;
+        this.onLobbyStats = onLobbyStats;
+
+        const ping = async () => {
+            if (!this.lobbyActive || !this.token) return;
+            try {
+                const res = await fetch(`${this.apiBase}/api/match`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${this.token}`
+                    },
+                    body: JSON.stringify({
+                        action: 'lobby_ping',
+                        status: 'IDLE',
+                        avatar: this.user ? this.user.avatar : 'frog-green'
+                    })
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.ok) {
+                        if (this.onLobbyStats) this.onLobbyStats(data.activeLobbyCount || 1);
+                        if (data.pendingInvite && this.onInviteReceived) {
+                            this.onInviteReceived(data.pendingInvite);
+                        }
+                    }
+                }
+            } catch (e) {}
+        };
+
+        ping();
+        this.lobbyHeartbeatTimer = setInterval(ping, 2500);
+    }
+
+    /**
+     * 退出大厅待机 (例如开始游戏或进入对战)
+     */
+    stopLobbyPresence() {
+        this.lobbyActive = false;
+        if (this.lobbyHeartbeatTimer) {
+            clearInterval(this.lobbyHeartbeatTimer);
+            this.lobbyHeartbeatTimer = null;
+        }
+        if (this.token) {
+            fetch(`${this.apiBase}/api/match`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.token}`
+                },
+                body: JSON.stringify({ action: 'lobby_ping', status: 'PLAYING' })
+            }).catch(() => {});
+        }
+    }
+
+    /**
+     * 响应收到的 1v1 战书 (接受或谢绝)
+     */
+    async respondDuelInvite(inviteId, accept) {
+        if (!this.token) return { ok: false };
+        try {
+            const res = await fetch(`${this.apiBase}/api/match`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.token}`
+                },
+                body: JSON.stringify({ action: 'respond_invite', inviteId, accept })
+            });
+            if (res.ok) return await res.json();
+        } catch (e) {}
+        return { ok: false };
+    }
+
+    /**
+     * 轮询发出的对决战书状态
+     */
+    async checkDuelInvite(inviteId) {
+        if (!this.token) return { ok: false };
+        try {
+            const res = await fetch(`${this.apiBase}/api/match`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.token}`
+                },
+                body: JSON.stringify({ action: 'check_invite', inviteId })
+            });
+            if (res.ok) return await res.json();
+        } catch (e) {}
+        return { ok: false };
+    }
+
+    /**
+     * 取消发出的战书
+     */
+    async cancelDuelInvite(inviteId) {
+        if (!this.token || !inviteId) return;
+        try {
+            await fetch(`${this.apiBase}/api/match`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.token}`
+                },
+                body: JSON.stringify({ action: 'cancel_invite', inviteId })
+            });
+        } catch (e) {}
+    }
+
+    /**
      * 请求加入 1v1 匹配对战
      */
     async joinMatch() {

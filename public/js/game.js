@@ -394,6 +394,7 @@ class NaiwaGame {
         document.getElementById('main-menu').classList.remove('hidden');
         document.getElementById('in-game-hud').classList.add('hidden');
         this._updateHUD();
+        this._startLobbyPresence();
     }
 
     _initUI() {
@@ -407,6 +408,12 @@ class NaiwaGame {
         document.getElementById('btn-records').onclick = () => this.showRecordsModal();
         document.getElementById('btn-settings').onclick = () => this.showSettingsModal();
         
+        // 1v1 战书邀请响应交互
+        const acceptDuelBtn = document.getElementById('btn-accept-duel');
+        if (acceptDuelBtn) acceptDuelBtn.onclick = () => this._acceptDuelInvite();
+        const declineDuelBtn = document.getElementById('btn-decline-duel');
+        if (declineDuelBtn) declineDuelBtn.onclick = () => this._declineDuelInvite();
+
         document.getElementById('btn-pause').onclick = () => this.togglePause();
         document.getElementById('btn-resume').onclick = () => this.togglePause();
         document.getElementById('btn-restart-pause').onclick = () => this.restartGame();
@@ -640,11 +647,11 @@ class NaiwaGame {
             }
         });
 
-        // 鼠标与触摸输入 (在容器画布上)
+        // 鼠标与触摸输入 (针对移动端触屏零延迟与防误触深度优化)
         const onDown = (e) => {
             if (this.state !== 'READY') return;
-            // 忽略点击在 HUD 按钮上的操作
-            if (e.target && e.target.closest && e.target.closest('button, .hud-btn, .modal-card')) return;
+            // 忽略点击在 HUD 按钮、卡片、菜单名片与输入框上的操作
+            if (e.target && e.target.closest && e.target.closest('button, .hud-btn, .modal-card, .menu-user-bar, nav, input')) return;
             this.startCharging();
         };
 
@@ -657,10 +664,23 @@ class NaiwaGame {
         window.addEventListener('mousedown', onDown);
         window.addEventListener('mouseup', onUp);
         window.addEventListener('touchstart', (e) => {
-            if (e.target && e.target.closest && e.target.closest('button, .hud-btn, .modal-card')) return;
-            onDown(e);
-        }, { passive: true });
-        window.addEventListener('touchend', onUp, { passive: true });
+            if (e.target && e.target.closest && e.target.closest('button, .hud-btn, .modal-card, .menu-user-bar, nav, input')) return;
+            if (this.state === 'READY') {
+                e.preventDefault();
+                this.startCharging();
+            }
+        }, { passive: false });
+        window.addEventListener('touchend', (e) => {
+            if (this.state === 'CHARGING') {
+                e.preventDefault();
+                this.releaseJump();
+            }
+        }, { passive: false });
+        window.addEventListener('touchcancel', (e) => {
+            if (this.state === 'CHARGING') {
+                this.releaseJump();
+            }
+        });
 
         // 拖拽文件到窗口直接加载
         window.addEventListener('dragover', (e) => e.preventDefault());
@@ -678,6 +698,8 @@ class NaiwaGame {
     startGame() {
         window.soundManager.playClick();
         window.soundManager.onGameStartFadeBgm(2.0); // 核心规则：点击开始游戏后 2 秒平滑淡出，随后转入游戏内循环背景音乐
+        if (this.network) this.network.stopLobbyPresence();
+        this._closeDuelInviteModal();
         document.getElementById('main-menu').classList.add('hidden');
         document.getElementById('game-over-modal').classList.add('hidden');
         document.getElementById('pause-modal').classList.add('hidden');
@@ -1036,6 +1058,7 @@ class NaiwaGame {
         document.getElementById('charge-meter-container').classList.add('hidden');
         document.getElementById('main-menu').classList.remove('hidden');
 
+        this._closeDuelInviteModal();
         this.mode = 'SOLO';
         this.battleRoomId = null;
         this.battleSeed = null;
@@ -1045,6 +1068,112 @@ class NaiwaGame {
         this.platforms.reset();
         this.player.resetTo(this.platforms.getCurrentPlatform().center, this.platforms.getNextPlatform().center);
         this.state = 'MENU';
+        this._startLobbyPresence();
+    }
+
+    /* ==========================================================
+     *  大厅待匹配心跳与 1v1 战书弹窗交互控制
+     * ========================================================== */
+
+    _startLobbyPresence() {
+        if (!this.network) return;
+        this.network.startLobbyPresence(
+            (invite) => this._onReceivedDuelInvite(invite),
+            (onlineCount) => {
+                const countBadge = document.getElementById('lobby-online-count');
+                if (countBadge) countBadge.textContent = `${Math.max(1, onlineCount)}人在线`;
+            }
+        );
+    }
+
+    _onReceivedDuelInvite(invite) {
+        if (this.currentDuelInvite && this.currentDuelInvite.inviteId === invite.inviteId) {
+            return;
+        }
+        this.currentDuelInvite = invite;
+
+        if (window.soundManager) window.soundManager.playLand('perfect', 2);
+
+        const modal = document.getElementById('duel-invite-modal');
+        if (!modal) return;
+
+        const nameEl = document.getElementById('duel-invite-name');
+        const avatarEl = document.getElementById('duel-invite-avatar');
+        const secEl = document.getElementById('duel-invite-seconds');
+        const barInner = document.getElementById('duel-timer-bar-inner');
+
+        if (nameEl) nameEl.textContent = invite.from.name || '对决挑战者';
+        if (avatarEl) {
+            const emojiMap = {
+                'frog-green': '🐸',
+                'frog-ninja': '🥷',
+                'frog-king': '👑',
+                'frog-space': '🚀',
+                'frog-gold': '🥇',
+                'frog-party': '🎉'
+            };
+            avatarEl.textContent = emojiMap[invite.from.avatar] || '🐸';
+        }
+
+        modal.classList.remove('hidden');
+
+        let remaining = invite.remainingSeconds || 15;
+        const total = 15;
+        if (secEl) secEl.textContent = remaining;
+        if (barInner) barInner.style.width = '100%';
+
+        if (this.duelInviteInterval) clearInterval(this.duelInviteInterval);
+        this.duelInviteInterval = setInterval(() => {
+            remaining--;
+            if (secEl) secEl.textContent = Math.max(0, remaining);
+            if (barInner) barInner.style.width = `${Math.max(0, (remaining / total) * 100)}%`;
+
+            if (remaining <= 0) {
+                clearInterval(this.duelInviteInterval);
+                this._closeDuelInviteModal();
+                if (this.network) this.network.respondDuelInvite(invite.inviteId, false);
+            }
+        }, 1000);
+    }
+
+    _closeDuelInviteModal() {
+        if (this.duelInviteInterval) {
+            clearInterval(this.duelInviteInterval);
+            this.duelInviteInterval = null;
+        }
+        this.currentDuelInvite = null;
+        const modal = document.getElementById('duel-invite-modal');
+        if (modal) modal.classList.add('hidden');
+    }
+
+    async _acceptDuelInvite() {
+        if (!this.currentDuelInvite || !this.network) return;
+        const inviteId = this.currentDuelInvite.inviteId;
+        this._closeDuelInviteModal();
+
+        if (this.network) this.network.stopLobbyPresence();
+        document.getElementById('main-menu').classList.add('hidden');
+
+        try {
+            const res = await this.network.respondDuelInvite(inviteId, true);
+            if (res && res.ok && res.status === 'MATCHED') {
+                this.mode = 'BATTLE';
+                this._onMatchFound(res);
+            } else {
+                alert('该对决邀请已失效或对手已离开');
+                this.returnToMenu();
+            }
+        } catch (e) {
+            console.error('Accept duel error:', e);
+            this.returnToMenu();
+        }
+    }
+
+    _declineDuelInvite() {
+        if (this.currentDuelInvite && this.network) {
+            this.network.respondDuelInvite(this.currentDuelInvite.inviteId, false);
+        }
+        this._closeDuelInviteModal();
     }
 
     /* ==========================================================
@@ -1059,8 +1188,11 @@ class NaiwaGame {
             await this.network.initAuth();
         }
 
+        if (this.network) this.network.stopLobbyPresence();
         this.mode = 'BATTLE';
         this.matchmakingSeconds = 0;
+        this.waitingInviteId = null;
+
         const modal = document.getElementById('matchmaking-modal');
         const statusText = document.getElementById('matchmaking-status-text');
         if (modal) modal.classList.remove('hidden');
@@ -1069,15 +1201,22 @@ class NaiwaGame {
         if (this.matchmakingTimer) clearInterval(this.matchmakingTimer);
         this.matchmakingTimer = setInterval(() => {
             this.matchmakingSeconds++;
-            if (statusText) {
-                statusText.textContent = `正在全网搜寻天梯匹配对手 (${this.matchmakingSeconds}s)...`;
+            if (statusText && !this.waitingInviteId) {
+                statusText.textContent = `正在全网搜寻天梯对决对手 (${this.matchmakingSeconds}s)...`;
             }
         }, 1000);
 
         try {
-            const startRes = await this.network.startMatch();
-            if (startRes && startRes.status === 'matched') {
+            const startRes = await this.network.joinMatch();
+            if (startRes && (startRes.status === 'MATCHED' || startRes.status === 'matched')) {
                 this._onMatchFound(startRes);
+            } else if (startRes && startRes.status === 'INVITED_WAITING') {
+                this.waitingInviteId = startRes.inviteId;
+                const targetName = startRes.targetPlayer ? startRes.targetPlayer.name : '大厅在线选手';
+                if (statusText) {
+                    statusText.textContent = `⚔️ 已向大厅选手【${targetName}】发送战书！等待应战...`;
+                }
+                this._pollDuelInvite(startRes.inviteId);
             } else {
                 this._pollMatchmaking();
             }
@@ -1086,6 +1225,38 @@ class NaiwaGame {
             if (statusText) statusText.textContent = '对战大厅响应超时，正在重试...';
             this._pollMatchmaking();
         }
+    }
+
+    _pollDuelInvite(inviteId) {
+        if (this.pollTimer) clearInterval(this.pollTimer);
+        this.pollTimer = setInterval(async () => {
+            if (this.mode !== 'BATTLE' || !this.network) {
+                clearInterval(this.pollTimer);
+                return;
+            }
+            try {
+                const res = await this.network.checkDuelInvite(inviteId);
+                const statusText = document.getElementById('matchmaking-status-text');
+                if (res && res.status === 'MATCHED') {
+                    clearInterval(this.pollTimer);
+                    this.waitingInviteId = null;
+                    this._onMatchFound(res);
+                } else if (res && (res.status === 'DECLINED' || res.status === 'EXPIRED')) {
+                    clearInterval(this.pollTimer);
+                    this.waitingInviteId = null;
+                    if (statusText) {
+                        statusText.textContent = res.status === 'DECLINED' ? '对方谢绝了挑战，正在搜寻其他在线选手...' : '对方应战超时，正在搜寻其他在线选手...';
+                    }
+                    this._pollMatchmaking();
+                } else if (res && res.status === 'PENDING') {
+                    if (statusText) {
+                        statusText.textContent = `⚔️ 等待对方应战中 (${res.remainingSeconds || 15}s)...`;
+                    }
+                }
+            } catch (e) {
+                console.warn('[Matchmaking] Poll invite error:', e);
+            }
+        }, 1000);
     }
 
     _pollMatchmaking() {
@@ -1097,14 +1268,23 @@ class NaiwaGame {
             }
             try {
                 const res = await this.network.pollMatch();
-                if (res && res.status === 'matched') {
+                if (res && (res.status === 'MATCHED' || res.status === 'matched')) {
                     clearInterval(this.pollTimer);
                     this._onMatchFound(res);
+                } else if (res && res.status === 'INVITED_WAITING') {
+                    clearInterval(this.pollTimer);
+                    this.waitingInviteId = res.inviteId;
+                    const targetName = res.targetPlayer ? res.targetPlayer.name : '大厅在线选手';
+                    const statusText = document.getElementById('matchmaking-status-text');
+                    if (statusText) {
+                        statusText.textContent = `⚔️ 已向大厅选手【${targetName}】发送战书！等待应战...`;
+                    }
+                    this._pollDuelInvite(res.inviteId);
                 }
             } catch (e) {
                 console.warn('[Matchmaking] Poll error:', e);
             }
-        }, 800);
+        }, 1000);
     }
 
     cancelMatchmaking() {
@@ -1117,12 +1297,17 @@ class NaiwaGame {
             clearInterval(this.pollTimer);
             this.pollTimer = null;
         }
+        if (this.waitingInviteId && this.network) {
+            this.network.cancelDuelInvite(this.waitingInviteId);
+            this.waitingInviteId = null;
+        }
         const modal = document.getElementById('matchmaking-modal');
         if (modal) modal.classList.add('hidden');
         if (this.network) {
             this.network.cancelMatch().catch(() => {});
         }
         this.mode = 'SOLO';
+        this._startLobbyPresence();
     }
 
     _onMatchFound(matchData) {
